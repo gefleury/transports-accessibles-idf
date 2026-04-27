@@ -66,7 +66,7 @@ class GeoPlotter:
         for _, row in self.gdf.iterrows():
             geom = row[self.geom_col]
 
-            if not geom:
+            if not hasattr(geom, "geom_type"):
                 continue
 
             # Set color
@@ -113,20 +113,16 @@ class GeoPlotter:
         """
         Add geometries from the GeoDataFrame gdf to the Folium map.
         """
-        geoplotter = GeoPlotter(gdf, geom_col=geom_col)
-        geoplotter.map = self.map
-        geoplotter.add_geodata_to_map(
+        self.gdf, original_gdf = gdf, self.gdf
+        self.geom_col, original_geom_col = geom_col, self.geom_col
+        self.add_geodata_to_map(
             default_color=default_color,
             color_col=color_col,
             colormap=colormap,
-            tooltip_cols=(
-                [x for x in gdf.columns if x != geom_col]
-                if not tooltip_cols
-                else tooltip_cols
-            ),
+            tooltip_cols=tooltip_cols,
             **kwargs,
         )
-        self.map = geoplotter.map
+        self.gdf, self.geom_col = original_gdf, original_geom_col
 
     def add_linestring(
         self, line: shapely.geometry.LineString, tooltip_text=None, **kwargs
@@ -146,7 +142,7 @@ class GeoPlotter:
 
     def add_point(self, point: shapely.geometry.Point, tooltip_text=None, **kwargs):
         coords = (point.y, point.x)
-        folium.Circle(
+        folium.CircleMarker(
             location=coords,
             tooltip=folium.Tooltip(tooltip_text) if tooltip_text else None,
             **kwargs,
