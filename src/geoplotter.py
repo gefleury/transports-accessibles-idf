@@ -4,7 +4,7 @@ import shapely
 
 
 class GeoPlotter:
-    def __init__(self, gdf, geom_col="geom", tiles="OpenStreetMap"):
+    def __init__(self, gdf, geom_col="geom", tiles="OpenStreetMap", zoom_start=10):
         """
         Initialize the GeoPlotter instance by centering the map around gdf data
 
@@ -41,7 +41,7 @@ class GeoPlotter:
 
         # Create a Folium map centered around the data's approximate center.
         self.map_location = [centroids.y.mean(), centroids.x.mean()]
-        self.map = folium.Map(location=self.map_location, zoom_start=6, tiles=tiles)
+        self.map = folium.Map(location=self.map_location, zoom_start=zoom_start, tiles=tiles)
 
     def add_geodata_to_map(
         self,
