@@ -17,6 +17,20 @@ ROUTE_TYPE_COLORS = {
     "Tram": "#27AE60",
 }
 
+ACCESSIBILITY_COLORS = {
+    "true":    "#27AE60",  # green
+    "partial": "#E67E22",  # orange
+    "false":   "#E74C3C",  # red
+    "unknown": "#888888",  # gray
+}
+
+ACCESSIBILITY_LABELS = {
+    "true":    "Accessible",
+    "partial": "Partiellement accessible",
+    "false":   "Non accessible",
+    "unknown": "Inconnu",
+}
+
 LINES_PATH = "data/processed/lines.geojson"
 STOPS_PATH = "data/processed/stops.geojson"
 
@@ -89,6 +103,17 @@ def main():
             "Sélectionnez des lignes spécifiques pour réduire le nombre d'arrêts."
         )
 
+    # Accessibility filter (only relevant when stops are shown)
+    st.sidebar.subheader("Accessibilité")
+    selected_accessibility = [
+        key for key, label in ACCESSIBILITY_LABELS.items()
+        if st.sidebar.checkbox(label, value=True)
+    ]
+    if show_stops and selected_accessibility:
+        stops_filtered = stops_filtered[
+            stops_filtered["ArRAccessibility"].isin(selected_accessibility)
+        ]
+
     # ── Map ───────────────────────────────────────────────────────────────────
     stop_count = len(stops_filtered) if show_stops else 0
     st.caption(f"{len(lines_filtered)} tracé(s) · {stop_count} arrêt(s) affiché(s)")
@@ -111,9 +136,15 @@ def main():
             geoplotter.add_geodata_from_gdf_to_map(
                 stops_filtered,
                 geom_col="geometry",
-                color_col="route_type",
-                colormap=ROUTE_TYPE_COLORS,
-                tooltip_cols=["stop_name", "route_short_name", "route_type", "nom_commune"],
+                color_col="ArRAccessibility",
+                colormap=ACCESSIBILITY_COLORS,
+                tooltip_cols=[
+                    "stop_name",
+                    "route_short_name",
+                    "route_type",
+                    "nom_commune",
+                    "ArRAccessibility",
+                ],
                 radius=5,
                 fill=True,
                 fill_opacity=0.8,
