@@ -8,13 +8,15 @@ from streamlit_folium import st_folium
 
 from geoplotter import GeoPlotter
 
-ROUTE_TYPE_COLORS = {
+MODE_COLORS = {
     "Bus": "#888888",
-    "CableWay": "#9B59B6",
-    "Funicular": "#E67E22",
-    "Rail": "#2471A3",
-    "Subway": "#E74C3C",
-    "Tram": "#27AE60",
+    "Métro": "#E74C3C",
+    "RER": "#2471A3",
+    "Tramway": "#27AE60",
+    "Transilien": "#8E44AD",
+    "TER": "#E67E22",
+    "Navette aéroport": "#F39C12",
+    "Autre": "#95A5A6",
 }
 
 ACCESSIBILITY_COLORS = {
@@ -46,12 +48,12 @@ def load_data() -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
 
 def apply_filters(
     gdf: gpd.GeoDataFrame,
-    selected_types: list[str],
+    selected_modes: list[str],
     selected_lines: list[str],
 ) -> gpd.GeoDataFrame:
-    if not selected_types:
+    if not selected_modes:
         return gdf.iloc[:0]
-    out = gdf[gdf["route_type"].isin(selected_types)]
+    out = gdf[gdf["mode"].isin(selected_modes)]
     if selected_lines:
         out = out[out["route_short_name"].isin(selected_lines)]
     return out
@@ -71,15 +73,15 @@ def main():
     # ── Sidebar ──────────────────────────────────────────────────────────────
     st.sidebar.header("Filtres")
 
-    # Route type — Bus unchecked by default (1800+ lines slow to render)
+    # Mode — Bus unchecked by default (1800+ lines slow to render)
     st.sidebar.subheader("Type de ligne")
-    selected_types = [
-        rt for rt in ROUTE_TYPE_COLORS if st.sidebar.checkbox(rt, value=(rt != "Bus"))
+    selected_modes = [
+        mode for mode in MODE_COLORS if st.sidebar.checkbox(mode, value=(mode != "Bus"))
     ]
 
-    lines_filtered = apply_filters(lines, selected_types, [])
+    lines_filtered = apply_filters(lines, selected_modes, [])
 
-    # Line selector — options update based on selected types
+    # Line selector — options update based on selected modes
     st.sidebar.subheader("Numéro de ligne")
     available_lines = sorted(lines_filtered["route_short_name"].dropna().unique())
     selected_lines = st.sidebar.multiselect(
@@ -87,11 +89,11 @@ def main():
         options=available_lines,
     )
 
-    if "Bus" in selected_types and not selected_lines:
+    if "Bus" in selected_modes and not selected_lines:
         st.sidebar.warning("Afficher toutes les lignes de bus peut être lent.")
 
-    lines_filtered = apply_filters(lines, selected_types, selected_lines)
-    stops_filtered = apply_filters(stops, selected_types, selected_lines)
+    lines_filtered = apply_filters(lines, selected_modes, selected_lines)
+    stops_filtered = apply_filters(stops, selected_modes, selected_lines)
 
     # Stops toggle — default off when stop count would be too large
     st.sidebar.subheader("Arrêts")
@@ -123,12 +125,12 @@ def main():
     else:
         geoplotter = GeoPlotter(lines_filtered, geom_col="geometry", zoom_start=10)
         geoplotter.add_geodata_to_map(
-            color_col="route_type",
-            colormap=ROUTE_TYPE_COLORS,
+            color_col="mode",
+            colormap=MODE_COLORS,
             tooltip_cols=[
                 "route_short_name",
                 "route_long_name",
-                "route_type",
+                "mode",
                 "operatorname",
             ],
         )
@@ -141,7 +143,7 @@ def main():
                 tooltip_cols=[
                     "stop_name",
                     "route_short_name",
-                    "route_type",
+                    "mode",
                     "nom_commune",
                     "ArRAccessibility",
                 ],

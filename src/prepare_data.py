@@ -23,8 +23,25 @@ OUT_LINES = OUT_DIR / "lines.geojson"
 OUT_STOPS = OUT_DIR / "stops.geojson"
 
 
-def prepare_lines(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    out = gdf[
+def map_mode(series: pd.Series) -> pd.Series:
+    mode_map = {
+        "Bus": "Bus",
+        "CableWay": "Autre",
+        "Funicular": "Autre",
+        "LocalTrain": "Transilien",
+        "Metro": "Métro",
+        "RailShuttle": "Navette aéroport",
+        "RapidTransit": "RER",
+        "Tramway": "Tramway",
+        "regionalRail": "TER",
+    }
+    return series.map(mode_map)
+
+
+def prepare_lines(
+    gdf_lines: gpd.GeoDataFrame, gdf_stops: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    out = gdf_lines[
         [
             "route_id",
             "route_short_name",
@@ -40,6 +57,11 @@ def prepare_lines(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     out["route_color"] = out["route_color"].apply(
         lambda c: f"#{c}" if pd.notna(c) and not str(c).startswith("#") else c
     )
+    # Add normalised mode from stops (one value per route_id)
+    mode_per_route = gdf_stops[["id", "mode"]].drop_duplicates("id")
+    out = out.merge(mode_per_route, left_on="route_id", right_on="id", how="left")
+    out = out.drop(columns=["id"])
+    out["mode"] = map_mode(out["mode"])
     return out
 
 
@@ -50,10 +72,8 @@ def prepare_stops(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
             "stop_id",
             "stop_name",
             "shortname",
-            "mode",
             "nom_commune",
             "code_insee",
-            "operatorname",
             "geometry",
         ]
     ].copy()
@@ -101,7 +121,7 @@ def join_stops_to_lines(
     kept — orphan stops are discarded automatically.
     """
     lines_meta = lines.drop(columns=["geometry"]).drop_duplicates(subset="route_id")[
-        ["route_id", "route_type", "route_short_name", "route_color"]
+        ["route_id", "route_type", "route_short_name", "route_color", "mode"]
     ]
     enriched = lines_meta.merge(stops, left_on="route_id", right_on="id", how="left")
     enriched = enriched.drop(columns=["route_id"])
@@ -136,7 +156,7 @@ def main():
     df_accessibility_train = pd.read_csv(RAW_ACCESSIBILITY_TRAIN, sep=";")
 
     print("Preparing lines...")
-    lines = prepare_lines(gdf_lines)
+    lines = prepare_lines(gdf_lines, gdf_stops)
     lines.to_file(OUT_LINES, driver="GeoJSON")
     print(f"  Written {len(lines)} lines → {OUT_LINES}")
 
