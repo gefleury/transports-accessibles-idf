@@ -128,7 +128,7 @@ def join_stops_to_lines(
     kept — orphan stops are discarded automatically.
     """
     lines_meta = lines.drop(columns=["geometry"]).drop_duplicates(subset="route_id")[
-        ["route_id", "route_type", "route_short_name", "route_color", "mode"]
+        ["route_id", "route_type", "route_short_name", "route_long_name", "route_color", "mode"]
     ]
     enriched = lines_meta.merge(stops, left_on="route_id", right_on="id", how="left")
     enriched = enriched.drop(columns=["route_id"])
@@ -153,6 +153,36 @@ def join_accessibility(
     return gpd.GeoDataFrame(enriched, geometry="geometry", crs=stops.crs)
 
 
+def join_line_accessibility(
+    lines: gpd.GeoDataFrame,
+    stops: gpd.GeoDataFrame,
+) -> gpd.GeoDataFrame:
+    """Add per-line accessibility summary flags to lines.
+
+    For each route, computes whether it has at least one stop for each
+    accessibility status (has_accessible, has_partial, has_inaccessible,
+    has_unknown), then left-joins onto lines.
+    Must be called after join_accessibility so stops already have ArRAccessibility.
+    """
+    status_cols = {
+        "true": "has_accessible",
+        "partial": "has_partial",
+        "false": "has_inaccessible",
+        "unknown": "has_unknown",
+    }
+    # One set of accessibility values per route (stops["id"] == lines route_id)
+    summary = stops.groupby("id")["ArRAccessibility"].apply(set).reset_index()
+    for status, col in status_cols.items():
+        summary[col] = summary["ArRAccessibility"].apply(lambda s, v=status: v in s)
+    summary = summary.drop(columns=["ArRAccessibility"])
+
+    enriched = lines.merge(summary, left_on="route_id", right_on="id", how="left")
+    enriched = enriched.drop(columns=["id"])
+    for col in status_cols.values():
+        enriched[col] = enriched[col].fillna(False).astype(bool)
+    return gpd.GeoDataFrame(enriched, geometry="geometry", crs=lines.crs)
+
+
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -162,19 +192,20 @@ def main():
     df_accessibility_bus = pd.read_csv(RAW_ACCESSIBILITY_BUS, sep=";")
     df_accessibility_train = pd.read_csv(RAW_ACCESSIBILITY_TRAIN, sep=";")
 
-    print("Preparing lines...")
-    lines = prepare_lines(gdf_lines, gdf_stops)
-    lines.to_file(OUT_LINES, driver="GeoJSON")
-    print(f"  Written {len(lines)} lines → {OUT_LINES}")
-
     print("Preparing stops...")
     accessibility_bus = prepare_accessibility_bus(df_accessibility_bus)
     accessibility_train = prepare_accessibility_train(df_accessibility_train)
+    lines = prepare_lines(gdf_lines, gdf_stops)
     stops = prepare_stops(gdf_stops)
     stops = join_stops_to_lines(lines, stops)
     stops = join_accessibility(stops, accessibility_bus, accessibility_train)
     stops.to_file(OUT_STOPS, driver="GeoJSON")
     print(f"  Written {len(stops)} stops → {OUT_STOPS}")
+
+    print("Preparing lines...")
+    lines = join_line_accessibility(lines, stops)
+    lines.to_file(OUT_LINES, driver="GeoJSON")
+    print(f"  Written {len(lines)} lines → {OUT_LINES}")
 
 
 if __name__ == "__main__":

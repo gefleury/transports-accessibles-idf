@@ -33,10 +33,24 @@ ACCESSIBILITY_LABELS = {
     "unknown": "Inconnu",
 }
 
+ACCESSIBILITY_DEFAULT = {
+    "true": True,
+    "partial": True,
+    "false": False,
+    "unknown": False,
+}
+
+ACCESSIBILITY_LINE_COL = {
+    "true": "has_accessible",
+    "partial": "has_partial",
+    "false": "has_inaccessible",
+    "unknown": "has_unknown",
+}
+
+MODE_DEFAULT_ON = {"Métro", "RER", "Tramway"}
+
 LINES_PATH = "data/processed/lines.geojson"
 STOPS_PATH = "data/processed/stops.geojson"
-
-MAX_STOPS_DEFAULT_ON = 2000
 
 
 @st.cache_data
@@ -48,70 +62,89 @@ def load_data() -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
 
 def apply_filters(
     gdf: gpd.GeoDataFrame,
-    selected_modes: list[str],
-    selected_lines: list[str],
+    mode_filters: dict[str, tuple[bool, list[str]]],
 ) -> gpd.GeoDataFrame:
-    if not selected_modes:
+    """Filter gdf by per-mode selections.
+
+    mode_filters maps mode → (enabled, selected_lines).
+    enabled + empty selected_lines → all lines of that mode.
+    enabled + non-empty selected_lines → only those lines.
+    disabled → nothing for that mode.
+    """
+    masks = []
+    for mode, (enabled, selected_lines) in mode_filters.items():
+        if not enabled:
+            continue
+        mask = gdf["mode"] == mode
+        if selected_lines:
+            mask = mask & gdf["route_long_name"].isin(selected_lines)
+        masks.append(mask)
+
+    if not masks:
         return gdf.iloc[:0]
-    out = gdf[gdf["mode"].isin(selected_modes)]
-    if selected_lines:
-        out = out[out["route_short_name"].isin(selected_lines)]
-    return out
+
+    combined = masks[0]
+    for m in masks[1:]:
+        combined = combined | m
+    return gdf[combined]
 
 
 def main():
     st.set_page_config(page_title="Transports Île-de-France", layout="wide")
     st.title("Transports en commun — Île-de-France")
-    st.info(
-        "Pour de meilleures performances, sélectionnez d'abord un ou plusieurs "
-        "numéros de ligne avant d'activer l'affichage des arrêts.",
-        icon="💡",
-    )
 
     lines, stops = load_data()
 
-    # ── Sidebar ──────────────────────────────────────────────────────────────
+    # ── Sidebar ───────────────────────────────────────────────────────────────
     st.sidebar.header("Filtres")
 
-    # Mode — Bus unchecked by default (1800+ lines slow to render)
-    st.sidebar.subheader("Type de ligne")
-    selected_modes = [
-        mode for mode in MODE_COLORS if st.sidebar.checkbox(mode, value=(mode != "Bus"))
-    ]
-
-    lines_filtered = apply_filters(lines, selected_modes, [])
-
-    # Line selector — options update based on selected modes
-    st.sidebar.subheader("Numéro de ligne")
-    available_lines = sorted(lines_filtered["route_short_name"].dropna().unique())
-    selected_lines = st.sidebar.multiselect(
-        "Sélectionner des lignes (vide = toutes)",
-        options=available_lines,
-    )
-
-    if "Bus" in selected_modes and not selected_lines:
-        st.sidebar.warning("Afficher toutes les lignes de bus peut être lent.")
-
-    lines_filtered = apply_filters(lines, selected_modes, selected_lines)
-    stops_filtered = apply_filters(stops, selected_modes, selected_lines)
-
-    # Stops toggle — default off when stop count would be too large
-    st.sidebar.subheader("Arrêts")
-    stops_default = len(stops_filtered) <= MAX_STOPS_DEFAULT_ON
-    show_stops = st.sidebar.checkbox("Afficher les arrêts", value=stops_default)
-    if not stops_default and show_stops:
-        st.sidebar.warning(
-            f"{len(stops_filtered)} arrêts à afficher — cela peut être lent. "
-            "Sélectionnez des lignes spécifiques pour réduire le nombre d'arrêts."
-        )
-
-    # Accessibility filter (only relevant when stops are shown)
-    st.sidebar.subheader("Accessibilité")
+    # ── Accessibility (top — focus of the app) ────────────────────────────────
+    st.sidebar.subheader("Accessibilité des arrêts")
     selected_accessibility = [
         key for key, label in ACCESSIBILITY_LABELS.items()
-        if st.sidebar.checkbox(label, value=True)
+        if st.sidebar.checkbox(label, value=ACCESSIBILITY_DEFAULT[key])
     ]
-    if show_stops and selected_accessibility:
+    # Stops are shown as long as at least one accessibility option is selected
+    show_stops = bool(selected_accessibility)
+
+    # ── Lines (per-mode expanders) ────────────────────────────────────────────
+    st.sidebar.subheader("Lignes")
+    st.sidebar.info(
+        "Seules les lignes ayant au moins un arrêt correspondant à l'accessibilité "
+        "sélectionnée sont proposées. Ex. : si seul « Accessible » est coché, "
+        "seules les lignes avec au moins un arrêt accessible apparaissent."
+    )
+    accessibility_cols = [ACCESSIBILITY_LINE_COL[k] for k in selected_accessibility]
+    mode_filters = {}
+    for mode in MODE_COLORS:
+        default_enabled = mode in MODE_DEFAULT_ON
+        with st.sidebar.expander(mode, expanded=default_enabled):
+            enabled = st.checkbox(
+                "Afficher toutes les lignes",
+                value=default_enabled,
+                key=f"enable_{mode}",
+            )
+            if mode == "Bus" and enabled:
+                st.warning(
+                    "Sélectionnez des lignes spécifiques pour de meilleures performances."
+                )
+            mode_df = lines[lines["mode"] == mode]
+            if accessibility_cols:
+                mode_df = mode_df[mode_df[accessibility_cols].any(axis=1)]
+            mode_lines = sorted(mode_df["route_long_name"].dropna().unique())
+            selected_lines = st.multiselect(
+                "Sélectionnez des lignes spécifiques",
+                options=mode_lines,
+                key=f"lines_{mode}",
+            )
+        mode_filters[mode] = (enabled, selected_lines)
+
+    # ── Apply filters ─────────────────────────────────────────────────────────
+    lines_filtered = apply_filters(lines, mode_filters)
+    if accessibility_cols:
+        lines_filtered = lines_filtered[lines_filtered[accessibility_cols].any(axis=1)]
+    stops_filtered = apply_filters(stops, mode_filters)
+    if show_stops:
         stops_filtered = stops_filtered[
             stops_filtered["ArRAccessibility"].isin(selected_accessibility)
         ]
