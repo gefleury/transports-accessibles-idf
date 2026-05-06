@@ -20,16 +20,16 @@ MODE_COLORS = {
 }
 
 ACCESSIBILITY_COLORS = {
-    "true":    "#27AE60",  # green
+    "true": "#27AE60",  # green
     "partial": "#E67E22",  # orange
-    "false":   "#E74C3C",  # red
+    "false": "#E74C3C",  # red
     "unknown": "#888888",  # gray
 }
 
 ACCESSIBILITY_LABELS = {
-    "true":    "Accessible",
+    "true": "Accessible",
     "partial": "Partiellement accessible",
-    "false":   "Non accessible",
+    "false": "Non accessible",
     "unknown": "Inconnu",
 }
 
@@ -101,7 +101,8 @@ def main():
     # ── Accessibility (top — focus of the app) ────────────────────────────────
     st.sidebar.subheader("Accessibilité des arrêts")
     selected_accessibility = [
-        key for key, label in ACCESSIBILITY_LABELS.items()
+        key
+        for key, label in ACCESSIBILITY_LABELS.items()
         if st.sidebar.checkbox(label, value=ACCESSIBILITY_DEFAULT[key])
     ]
     # Stops are shown as long as at least one accessibility option is selected
@@ -109,41 +110,60 @@ def main():
 
     # ── Lines (per-mode expanders) ────────────────────────────────────────────
     st.sidebar.subheader("Lignes")
-    st.sidebar.info(
-        "Seules les lignes ayant au moins un arrêt correspondant à l'accessibilité "
-        "sélectionnée sont proposées. Ex. : si seul « Accessible » est coché, "
-        "seules les lignes avec au moins un arrêt accessible apparaissent."
+    st.sidebar.markdown(
+        "<small>ℹ️ Seules les lignes ayant au moins un arrêt correspondant à l'accessibilité "
+        "sélectionnée sont proposées. Par exemple, si seule la case « Accessible » est cochée, "
+        "seules les lignes avec au moins un arrêt accessible apparaissent.</small>",
+        unsafe_allow_html=True,
     )
     accessibility_cols = [ACCESSIBILITY_LINE_COL[k] for k in selected_accessibility]
     mode_filters = {}
+    selected_bus_operators = []
     for mode in MODE_COLORS:
         default_enabled = mode in MODE_DEFAULT_ON
         with st.sidebar.expander(mode, expanded=default_enabled):
-            enabled = st.checkbox(
-                "Afficher toutes les lignes",
-                value=default_enabled,
-                key=f"enable_{mode}",
-            )
-            if mode == "Bus" and enabled:
-                st.warning(
-                    "Sélectionnez des lignes spécifiques pour de meilleures performances."
+            if mode != "Bus":
+                enabled = st.checkbox(
+                    "Afficher toutes les lignes",
+                    value=default_enabled,
+                    key=f"enable_{mode}",
                 )
             mode_df = lines[lines["mode"] == mode]
             if accessibility_cols:
                 mode_df = mode_df[mode_df[accessibility_cols].any(axis=1)]
+            if mode == "Bus":
+                all_operators = sorted(mode_df["operatorname"].dropna().unique())
+                selected_bus_operators = st.multiselect(
+                    "Sélectionnez un opérateur spécifique",
+                    options=all_operators,
+                    key="operators_Bus",
+                )
+                if selected_bus_operators:
+                    mode_df = mode_df[
+                        mode_df["operatorname"].isin(selected_bus_operators)
+                    ]
             mode_lines = sorted(mode_df["route_long_name"].dropna().unique())
             selected_lines = st.multiselect(
                 "Sélectionnez des lignes spécifiques",
                 options=mode_lines,
                 key=f"lines_{mode}",
             )
-        mode_filters[mode] = (enabled, selected_lines)
+        if mode == "Bus":
+            bus_active = bool(selected_bus_operators) or bool(selected_lines)
+            mode_filters[mode] = (bus_active, selected_lines)
+        else:
+            mode_filters[mode] = (enabled, selected_lines)
 
     # ── Apply filters ─────────────────────────────────────────────────────────
     lines_filtered = apply_filters(lines, mode_filters)
     if accessibility_cols:
         lines_filtered = lines_filtered[lines_filtered[accessibility_cols].any(axis=1)]
-    stops_filtered = apply_filters(stops, mode_filters)
+    if selected_bus_operators:
+        bus_mask = (lines_filtered["mode"] != "Bus") | lines_filtered[
+            "operatorname"
+        ].isin(selected_bus_operators)
+        lines_filtered = lines_filtered[bus_mask]
+    stops_filtered = stops[stops["id"].isin(lines_filtered["route_id"])]
     if show_stops:
         stops_filtered = stops_filtered[
             stops_filtered["ArRAccessibility"].isin(selected_accessibility)
@@ -152,6 +172,12 @@ def main():
     # ── Map ───────────────────────────────────────────────────────────────────
     stop_count = len(stops_filtered) if show_stops else 0
     st.caption(f"{len(lines_filtered)} tracé(s) · {stop_count} arrêt(s) affiché(s)")
+    if show_stops and stop_count > 2000:
+        st.warning(
+            f"{stop_count} arrêts correspondent à votre sélection! "
+            "L'affichage peut être lent. Sélectionnez des lignes spécifiques "
+            "pour réduire le nombre d'arrêts."
+        )
 
     if lines_filtered.empty:
         st.info("Sélectionnez au moins un type de ligne dans le panneau latéral.")
