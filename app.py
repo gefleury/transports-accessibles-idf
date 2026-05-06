@@ -2,6 +2,8 @@ import sys
 
 sys.path.insert(0, "src")
 
+import re
+
 import geopandas as gpd
 import streamlit as st
 from streamlit_folium import st_folium
@@ -89,6 +91,13 @@ def apply_filters(
     return gdf[combined]
 
 
+def _line_sort_key(name: str):
+    # Natural sort: split into alternating text/number chunks so that embedded
+    # numbers are compared numerically. E.g. "T3a" < "T3b" < "T4" < "T10".
+    parts = re.split(r"(\d+)", str(name))
+    return [int(p) if p.isdigit() else p.lower() for p in parts]
+
+
 def main():
     st.set_page_config(page_title="Transports Île-de-France", layout="wide")
     st.title("Transports en commun — Île-de-France")
@@ -142,7 +151,7 @@ def main():
                     mode_df = mode_df[
                         mode_df["operatorname"].isin(selected_bus_operators)
                     ]
-            mode_lines = sorted(mode_df["route_long_name"].dropna().unique())
+            mode_lines = sorted(mode_df["route_long_name"].dropna().unique(), key=_line_sort_key)
             selected_lines = st.multiselect(
                 "Sélectionnez des lignes spécifiques",
                 options=mode_lines,
