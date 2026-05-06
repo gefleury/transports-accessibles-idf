@@ -41,28 +41,35 @@ def map_mode(series: pd.Series) -> pd.Series:
 def prepare_lines(
     gdf_lines: gpd.GeoDataFrame, gdf_stops: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
-    out = gdf_lines[
-        [
-            "route_id",
-            "route_short_name",
-            "route_long_name",
-            "route_type",
-            "route_color",
-            "operatorname",
-            "networkname",
-            "geometry",
-        ]
-    ].copy()
-    # Normalise route_color: source has no '#' prefix
-    out["route_color"] = out["route_color"].apply(
-        lambda c: f"#{c}" if pd.notna(c) and not str(c).startswith("#") else c
-    )
-    # Add normalised mode from stops (one value per route_id)
     mode_per_route = gdf_stops[["id", "mode"]].drop_duplicates("id")
-    out = out.merge(mode_per_route, left_on="route_id", right_on="id", how="left")
-    out = out.drop(columns=["id"])
-    out["mode"] = map_mode(out["mode"])
-    return out
+    out_gdf = (
+        gdf_lines[
+            [
+                "route_id",
+                "route_short_name",
+                "route_long_name",
+                "route_type",
+                "route_color",
+                "operatorname",
+                "networkname",
+                "geometry",
+            ]
+        ]
+        .copy()
+        # Drop SNCF-operated bus lines (are they errors in the input data?)
+        .loc[lambda df: ~((df["route_type"] == "Bus") & (df["operatorname"] == "SNCF"))]
+        # Normalise route_color: source has no '#' prefix
+        .assign(
+            route_color=lambda df: df["route_color"].apply(
+                lambda c: f"#{c}" if pd.notna(c) and not str(c).startswith("#") else c
+            )
+        )
+        # Add normalised mode from stops (one value per route_id)
+        .merge(mode_per_route, left_on="route_id", right_on="id", how="left")
+        .drop(columns=["id"])
+        .assign(mode=lambda df: map_mode(df["mode"]))
+    )
+    return out_gdf
 
 
 def prepare_stops(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
