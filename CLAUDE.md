@@ -19,7 +19,10 @@ python -m pytest tests/
 python -m unittest discover tests/
 ```
 
-Tests live in `tests/test_prepare_data.py`. They are integration tests that run against the local source files in `data/` and are skipped automatically when those files are absent. They verify both input file structure (column names, valid values) and known accessibility assertions (e.g. Châtelet on line 11 → `false`, on line 14 → `true`).
+Tests live in `tests/test_prepare_data.py` and are skipped automatically when the relevant files are absent. Three test classes:
+- `TestInputFileStructure` — verifies raw source files have the expected columns and valid values; catches API format changes.
+- `TestMetroAccessibility` — tests `prepare_accessibility_metro` against the raw stops file (Châtelet line 11 → `false`, line 14 → `true`, Porte des Lilas line 11 → `true`, etc.).
+- `TestProcessedOutput` — end-to-end tests on `data/processed/` (run `python src/prepare_data.py` first); catches bugs in `join_accessibility`, `join_stops_to_lines`, and `join_line_accessibility`.
 
 ## Running the Streamlit app
 
@@ -64,7 +67,7 @@ Key functions:
 - `map_mode(series)` — maps raw mode strings to French labels
 - `prepare_lines(gdf_lines, gdf_stops)` — column selection, drops SNCF bus lines, normalises `route_color`, merges `mode` from stops
 - `prepare_stops(gdf)` — column selection only
-- `join_stops_to_lines(lines, stops)` — lines LEFT JOIN stops; orphan stops fall off naturally; adds `route_short_name`, `route_long_name`, `route_color`, `mode` to stops
+- `join_stops_to_lines(lines, stops)` — lines LEFT JOIN stops; orphan stops fall off naturally; adds `route_short_name`, `route_long_name`, `route_color`, `mode` to stops; drops the rare stops with no mode (lines present in the lines file but absent from `arrets-lignes.geojson`)
 - `prepare_accessibility_bus(df)` — returns `(stop_id, route_long_name, ArRAccessibility)` directly from the CSV (which already has `route_long_name`)
 - `prepare_accessibility_tramway(gdf_stops)` — all Tramway stops → `"true"`; returns `(stop_id, route_long_name, ArRAccessibility)`
 - `prepare_accessibility_metro(gdf_stops)` — line ≥ 14 → `"true"`; line 11 named stations → `"true"`; all others → `"false"`; returns one row per `(stop_id, route_long_name)` pair
