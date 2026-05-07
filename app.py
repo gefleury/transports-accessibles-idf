@@ -12,11 +12,11 @@ from geoplotter import GeoPlotter
 
 MODE_COLORS = {
     "Bus": "#888888",
-    "Métro": "#E74C3C",
+    "Métro": "#5DADE2",
     "RER": "#2471A3",
     "Tramway": "#27AE60",
     "Transilien": "#8E44AD",
-    "TER": "#E67E22",
+    "TER": "#F48FB1",
     "Navette aéroport": "#F39C12",
     "Autre": "#95A5A6",
 }
@@ -109,11 +109,16 @@ def main():
 
     # ── Accessibility (top — focus of the app) ────────────────────────────────
     st.sidebar.subheader("Accessibilité des arrêts")
-    selected_accessibility = [
-        key
-        for key, label in ACCESSIBILITY_LABELS.items()
-        if st.sidebar.checkbox(label, value=ACCESSIBILITY_DEFAULT[key])
-    ]
+    selected_accessibility = []
+    for key, label in ACCESSIBILITY_LABELS.items():
+        col_check, col_dot = st.sidebar.columns([0.8, 0.2])
+        if col_check.checkbox(label, value=ACCESSIBILITY_DEFAULT[key]):
+            selected_accessibility.append(key)
+        col_dot.markdown(
+            f'<div style="background:{ACCESSIBILITY_COLORS[key]};width:14px;height:14px;'
+            f'border-radius:50%;margin-top:13px"></div>',
+            unsafe_allow_html=True,
+        )
     # Stops are shown as long as at least one accessibility option is selected
     show_stops = bool(selected_accessibility)
 
@@ -131,6 +136,10 @@ def main():
     for mode in MODE_COLORS:
         default_enabled = mode in MODE_DEFAULT_ON
         with st.sidebar.expander(mode, expanded=default_enabled):
+            st.markdown(
+                f'<div style="background:{MODE_COLORS[mode]};height:4px;border-radius:2px;margin-bottom:4px"></div>',
+                unsafe_allow_html=True,
+            )
             if mode != "Bus":
                 enabled = st.checkbox(
                     "Afficher toutes les lignes",
@@ -151,7 +160,9 @@ def main():
                     mode_df = mode_df[
                         mode_df["operatorname"].isin(selected_bus_operators)
                     ]
-            mode_lines = sorted(mode_df["route_long_name"].dropna().unique(), key=_line_sort_key)
+            mode_lines = sorted(
+                mode_df["route_long_name"].dropna().unique(), key=_line_sort_key
+            )
             selected_lines = st.multiselect(
                 "Sélectionnez des lignes spécifiques",
                 options=mode_lines,
