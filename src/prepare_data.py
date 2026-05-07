@@ -204,8 +204,11 @@ def join_stops_to_lines(
     lines_meta = lines.drop(columns=["geometry"]).drop_duplicates(subset="route_id")[
         ["route_id", "route_type", "route_short_name", "route_long_name", "route_color", "mode"]
     ]
-    enriched = lines_meta.merge(stops, left_on="route_id", right_on="id", how="left")
-    enriched = enriched.drop(columns=["route_id"])
+    enriched = (
+        lines_meta.merge(stops, left_on="route_id", right_on="id", how="left")
+        .drop(columns=["route_id"])
+        .dropna(subset=["mode"])
+    )
     return gpd.GeoDataFrame(enriched, geometry="geometry", crs=stops.crs)
 
 
