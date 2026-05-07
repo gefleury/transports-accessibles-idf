@@ -191,7 +191,14 @@ def main():
 
     # ── Map ───────────────────────────────────────────────────────────────────
     stop_count = len(stops_filtered) if show_stops else 0
-    st.caption(f"{len(lines_filtered)} tracé(s) · {stop_count} arrêt(s) affiché(s)")
+    col_stats, col_date = st.columns([0.7, 0.3])
+    col_stats.caption(
+        f"{len(lines_filtered)} tracé(s) · {stop_count} arrêt(s) affiché(s)"
+    )
+    col_date.markdown(
+        '<div style="text-align:right"><small>Données mises à jour le 27/04/2026</small></div>',
+        unsafe_allow_html=True,
+    )
     if show_stops and stop_count > 2000:
         st.warning(
             f"{stop_count} arrêts correspondent à votre sélection! "
@@ -206,12 +213,10 @@ def main():
         geoplotter.add_geodata_to_map(
             color_col="mode",
             colormap=MODE_COLORS,
-            tooltip_cols=[
-                "route_short_name",
-                "route_long_name",
-                "mode",
-                "operatorname",
-            ],
+            tooltip_html=lambda row: (
+                f"<b>Ligne {row['route_long_name']}</b><br>"
+                f"{row['mode']} ({row['operatorname']})"
+            ),
         )
         if show_stops and not stops_filtered.empty:
             geoplotter.add_geodata_from_gdf_to_map(
@@ -219,13 +224,16 @@ def main():
                 geom_col="geometry",
                 color_col="ArRAccessibility",
                 colormap=ACCESSIBILITY_COLORS,
-                tooltip_cols=[
-                    "stop_name",
-                    "route_short_name",
-                    "mode",
-                    "nom_commune",
-                    "ArRAccessibility",
-                ],
+                tooltip_html=lambda row: (
+                    f"<b>Arrêt \"{row['stop_name']}\"</b>"
+                    # + (f" (commune de {row['nom_commune']})" if isinstance(row["nom_commune"], str) else "")
+                    + f"<br>{row['mode']}, Ligne {row['route_long_name']}<br>"
+                    + '<span style="color:'
+                    + ACCESSIBILITY_COLORS[row["ArRAccessibility"]]
+                    + '">♿ <b>'
+                    + ACCESSIBILITY_LABELS[row["ArRAccessibility"]]
+                    + "</b></span>"
+                ),
                 radius=5,
                 fill=True,
                 fill_opacity=0.8,

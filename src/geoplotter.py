@@ -49,6 +49,7 @@ class GeoPlotter:
         color_col=None,
         colormap=None,
         tooltip_cols=None,
+        tooltip_html=None,
         **kwargs,
     ):
         """
@@ -60,6 +61,9 @@ class GeoPlotter:
             colormap (dict or callable): A dictionary mapping 'color_col' values to colors
                                          or a function that maps values to colors.
             tooltip_cols (list of str): List of column names to be displayed in the tooltip.
+            tooltip_html (callable): Optional callable (row) -> HTML string. When provided,
+                                     overrides tooltip_cols and gives full control over the
+                                     tooltip content.
             **kwargs : Other Folium styling parameters.
         """
 
@@ -85,16 +89,18 @@ class GeoPlotter:
                     raise ValueError("Colormap is missing")
 
             # Create Tooltip content
-            tooltip_text = None
-            tooltip_cols = (
-                [x for x in self.gdf.columns if x != self.geom_col]
-                if not tooltip_cols
-                else tooltip_cols
-            )
-            assert isinstance(tooltip_cols, list)
-            tooltip_text = "<br>".join(
-                [f"<b>{col}:</b> {row[col]}" for col in tooltip_cols if col in row]
-            )
+            if tooltip_html is not None:
+                tooltip_text = tooltip_html(row)
+            else:
+                tooltip_cols = (
+                    [x for x in self.gdf.columns if x != self.geom_col]
+                    if not tooltip_cols
+                    else tooltip_cols
+                )
+                assert isinstance(tooltip_cols, list)
+                tooltip_text = "<br>".join(
+                    [f"<b>{col}:</b> {row[col]}" for col in tooltip_cols if col in row]
+                )
 
             self.add_geometry_element(
                 geom, color=color, tooltip_text=tooltip_text, **kwargs
@@ -108,6 +114,7 @@ class GeoPlotter:
         color_col=None,
         colormap=None,
         tooltip_cols=None,
+        tooltip_html=None,
         **kwargs,
     ):
         """
@@ -120,6 +127,7 @@ class GeoPlotter:
             color_col=color_col,
             colormap=colormap,
             tooltip_cols=tooltip_cols,
+            tooltip_html=tooltip_html,
             **kwargs,
         )
         self.gdf, self.geom_col = original_gdf, original_geom_col
