@@ -100,7 +100,7 @@ def _line_sort_key(name: str):
 
 def main():
     st.set_page_config(page_title="Transports Île-de-France", layout="wide")
-    st.title("Transports en commun — Île-de-France")
+    st.title("Accessibilité PMR des transports en commun en Île-de-France")
 
     lines, stops = load_data()
 
@@ -173,6 +173,18 @@ def main():
             mode_filters[mode] = (bus_active, selected_lines)
         else:
             mode_filters[mode] = (enabled, selected_lines)
+
+    # ── Sources ───────────────────────────────────────────────────────────────
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Sources")
+    st.sidebar.markdown(
+        "Merci à [Île-de-France Mobilités](https://data.iledefrance-mobilites.fr) "
+        "pour le partage de ces données en open data.\n\n"
+        "- [Tracés des lignes](https://data.iledefrance-mobilites.fr/explore/dataset/traces-des-lignes-de-transport-en-commun-idfm/information/)\n"
+        "- [Arrêts des lignes](https://data.iledefrance-mobilites.fr/explore/dataset/arrets-lignes/information)\n"
+        "- [Accessibilité en gare](https://data.iledefrance-mobilites.fr/explore/dataset/accessibilite-en-gare/information/)\n"
+        "- [Accessibilité des arrêts bus](https://data.iledefrance-mobilites.fr/explore/dataset/sdap-arrets-associes/information/)"
+    )
 
     # ── Apply filters ─────────────────────────────────────────────────────────
     lines_filtered = apply_filters(lines, mode_filters)
