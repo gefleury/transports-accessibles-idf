@@ -1,6 +1,7 @@
 # ♿ Accessibilité PMR des transports en commun en Île-de-France
 
-Application Streamlit permettant de visualiser l'accessibilité aux personnes à mobilité réduite (PMR) des transports en commun en Île-de-France.
+Application Streamlit permettant de visualiser sur une carte l'accessibilité aux personnes à mobilité réduite (PMR) des transports en commun en Île-de-France. L'objectif est de proposer une vue d'ensemble de l'accessibilité du réseau et d'offrir la possibilité d'afficher uniquement les lignes ayant des arrêts accessibles en toute autonomie. 
+
 
 ## App
 Lien vers l'application Streamlit :  
