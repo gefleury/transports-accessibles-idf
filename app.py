@@ -101,6 +101,19 @@ def _line_sort_key(name: str):
 def main():
     st.set_page_config(page_title="Transports Île-de-France", layout="wide")
     st.title("Accessibilité PMR des transports en commun en Île-de-France")
+    st.markdown(
+        """<style>
+        section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {
+            flex-wrap: nowrap !important;
+        }
+        section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]
+            [data-testid="stColumn"]:last-child {
+            align-self: center !important;
+            margin-top: -6px !important;
+        }
+        </style>""",
+        unsafe_allow_html=True,
+    )
 
     lines, stops = load_data()
 
@@ -109,6 +122,12 @@ def main():
 
     # ── Accessibility (top — focus of the app) ────────────────────────────────
     st.sidebar.subheader("Accessibilité des arrêts")
+    st.sidebar.markdown(
+        "<small>ℹ️ Pour une personne en fauteuil roulant. "
+        "Accessible = en toute autonomie, "
+        "Partiellement accessible = avec l'aide d'un tiers et/ou réservation préalable.</small>",
+        unsafe_allow_html=True,
+    )
     selected_accessibility = []
     for key, label in ACCESSIBILITY_LABELS.items():
         col_check, col_dot = st.sidebar.columns([0.8, 0.2])
@@ -116,7 +135,7 @@ def main():
             selected_accessibility.append(key)
         col_dot.markdown(
             f'<div style="background:{ACCESSIBILITY_COLORS[key]};width:14px;height:14px;'
-            f'border-radius:50%;margin-top:13px"></div>',
+            f'border-radius:50%"></div>',
             unsafe_allow_html=True,
         )
     # Stops are shown as long as at least one accessibility option is selected
@@ -183,7 +202,7 @@ def main():
         "- [Tracés des lignes](https://data.iledefrance-mobilites.fr/explore/dataset/traces-des-lignes-de-transport-en-commun-idfm/information/)\n"
         "- [Arrêts des lignes](https://data.iledefrance-mobilites.fr/explore/dataset/arrets-lignes/information)\n"
         "- [Accessibilité en gare](https://data.iledefrance-mobilites.fr/explore/dataset/accessibilite-en-gare/information/)\n"
-        "- [Accessibilité des arrêts bus](https://data.iledefrance-mobilites.fr/explore/dataset/sdap-arrets-associes/information/)"
+        "- [Accessibilité des arrêts de bus](https://data.iledefrance-mobilites.fr/explore/dataset/sdap-arrets-associes/information/)"
     )
 
     # ── Apply filters ─────────────────────────────────────────────────────────
