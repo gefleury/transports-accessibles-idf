@@ -60,7 +60,7 @@ class TestInputFileStructure(unittest.TestCase):
 
     def test_bus_accessibility_required_columns(self):
         df = pd.read_csv(RAW_ACCESSIBILITY_BUS, sep=";")
-        required = {"stop_id", "route_long_name", "ArRAccessibility"}
+        required = {"stop_id", "route_id", "arraccessibility"}
         missing = required - set(df.columns)
         self.assertFalse(missing, f"sdap-arrets-associes.csv is missing columns: {missing}")
 
@@ -73,9 +73,9 @@ class TestInputFileStructure(unittest.TestCase):
     def test_bus_accessibility_values_are_valid(self):
         df = pd.read_csv(RAW_ACCESSIBILITY_BUS, sep=";")
         valid = {"true", "false", "partial", "unknown"}
-        actual = set(df["ArRAccessibility"].dropna().unique())
+        actual = set(df["arraccessibility"].dropna().unique())
         unexpected = actual - valid
-        self.assertFalse(unexpected, f"Unexpected ArRAccessibility values in bus file: {unexpected}")
+        self.assertFalse(unexpected, f"Unexpected arraccessibility values in bus file: {unexpected}")
 
     def test_train_accessibility_level_ids_are_known(self):
         df = pd.read_csv(RAW_ACCESSIBILITY_TRAIN, sep=";")

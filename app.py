@@ -208,7 +208,7 @@ def main():
         f"{len(lines_filtered)} tracé(s) · {stop_count} arrêt(s) affiché(s)"
     )
     col_date.markdown(
-        '<div style="text-align:right"><small>Données mises à jour le 27/04/2026</small></div>',
+        '<div style="text-align:right"><small>Données mises à jour le 07/05/2026</small></div>',
         unsafe_allow_html=True,
     )
     if show_stops and stop_count > 2000:

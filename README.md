@@ -13,16 +13,22 @@ pip install -r requirements.txt
 
 ## Utilisation
 
-Placer les fichiers de données brutes dans `data/` (voir sources ci-dessous), puis préparer les données avec:
-
-```bash
-python src/prepare_data.py
-```
-
-Lancer l'application avec:
+Pour lancer l'application en local :
 
 ```bash
 streamlit run app.py
+```
+
+Les données traitées sont incluses dans le repo (voir `data/processed/`).  Pour régénérer les données traitées à partir des fichiers sources bruts, télécharger d'abord les données depuis l'API Île-de-France Mobilités :
+
+```bash
+python src/download_data.py
+```
+
+Puis lancer le script de préparation :
+
+```bash
+python src/prepare_data.py
 ```
 
 ## Sources des données

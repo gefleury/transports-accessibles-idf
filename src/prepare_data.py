@@ -86,17 +86,26 @@ def prepare_stops(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     ].copy()
 
 
-def prepare_accessibility_bus(df: pd.DataFrame) -> pd.DataFrame:
+def prepare_accessibility_bus(df: pd.DataFrame, gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
     """Clean the bus stop accessibility file (sdap-arrets-associes.csv).
 
-    Keeps one row per (stop_id, route_long_name) pair — the CSV already
-    provides this granularity. NaN accessibility values are replaced with
-    "unknown".
+    Joins with gdf_stops on (stop_id, route_id) to get route_long_name —
+    the API no longer provides route_long_name directly (column was renamed
+    to arraccessibility / route_id vs the old ArRAccessibility / route_long_name).
+    Returns one row per (stop_id, route_long_name) pair with ArRAccessibility.
     """
+    bus_stop_lines = (
+        gdf_stops[gdf_stops["mode"] == "Bus"][["stop_id", "id", "route_long_name"]]
+        .drop_duplicates()
+    )
     return (
-        df[["stop_id", "route_long_name", "ArRAccessibility"]]
-        .drop_duplicates(subset=["stop_id", "route_long_name"])
+        df[["stop_id", "route_id", "arraccessibility"]]
+        .drop_duplicates(subset=["stop_id", "route_id"])
+        .rename(columns={"arraccessibility": "ArRAccessibility"})
         .fillna({"ArRAccessibility": "unknown"})
+        .merge(bus_stop_lines, left_on=["stop_id", "route_id"], right_on=["stop_id", "id"], how="inner")
+        [["stop_id", "route_long_name", "ArRAccessibility"]]
+        .drop_duplicates(subset=["stop_id", "route_long_name"])
         .reset_index(drop=True)
     )
 
@@ -271,7 +280,7 @@ def main():
     df_accessibility_train = pd.read_csv(RAW_ACCESSIBILITY_TRAIN, sep=";")
 
     print("Preparing stops...")
-    accessibility_bus = prepare_accessibility_bus(df_accessibility_bus)
+    accessibility_bus = prepare_accessibility_bus(df_accessibility_bus, gdf_stops)
     accessibility_tramway = prepare_accessibility_tramway(gdf_stops)
     accessibility_metro = prepare_accessibility_metro(gdf_stops)
     accessibility_train = prepare_accessibility_train(df_accessibility_train, gdf_stops)
