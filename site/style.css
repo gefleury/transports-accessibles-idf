@@ -1,0 +1,213 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+}
+
+/* ── Layout: sidebar | (banner / map) ──────────────────────────────────── */
+
+#app {
+  display: flex;
+  height: 100%;
+}
+
+#sidebar {
+  width: 320px;
+  flex: none;
+  overflow-y: auto;
+  padding: 32px 16px 16px;
+  background: #fafafa;
+  border-right: 1px solid #ddd;
+  box-sizing: border-box;
+  font-size: 13px;
+}
+
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+#banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff;
+  padding: 24px 16px 20px;
+}
+
+#banner h1 {
+  font-size: 24px;
+  margin: 0;
+}
+
+#github-link {
+  flex: none;
+  display: flex;
+  color: #555;
+}
+
+#github-link:hover {
+  color: #000;
+}
+
+#meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 16px;
+  background: #fff;
+  color: #555;
+  font-size: 12px;
+}
+
+#map-wrap {
+  flex: 1;
+  display: flex;
+  padding: 4px 16px 16px;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+#map {
+  flex: 1;
+}
+
+/* ── Sidebar widgets ───────────────────────────────────────────────────── */
+
+h2 {
+  font-size: 17px;
+  margin: 16px 0 6px;
+}
+
+.hint {
+  color: #666;
+  font-size: 11px;
+  margin: 4px 0 8px;
+}
+
+label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+  cursor: pointer;
+}
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.bar {
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  flex: none;
+}
+
+details {
+  margin: 6px 0;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 6px 0 4px;
+  padding: 4px 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.options {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.options label {
+  margin: 1px 0;
+}
+
+.dropdown {
+  position: relative;
+  margin: 4px 0 6px;
+}
+
+.dropdown-toggle {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  color: #333;
+}
+
+.dropdown-toggle.placeholder {
+  color: #888;
+}
+
+.dropdown-panel {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin-top: 2px;
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.dropdown.open .dropdown-panel {
+  display: block;
+}
+
+.sources {
+  font-size: 11px;
+  color: #666;
+  margin-top: 16px;
+  border-top: 1px solid #ddd;
+  padding-top: 8px;
+}
+
+.sources a {
+  color: #2471a3;
+}
