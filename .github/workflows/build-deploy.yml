@@ -1,0 +1,110 @@
+name: Build and deploy
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"  # Monday 03:00 UTC — weekly data refresh
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deployments at once; let a running one finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  TIPPECANOE_VERSION: "2.79.0"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --group ci
+
+      - name: Cache tippecanoe
+        id: tippecanoe-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin
+          key: tippecanoe-${{ env.TIPPECANOE_VERSION }}
+
+      - name: Build tippecanoe
+        if: steps.tippecanoe-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev zlib1g-dev
+          git clone --depth 1 --branch "$TIPPECANOE_VERSION" \
+            https://github.com/felt/tippecanoe.git /tmp/tippecanoe
+          make -C /tmp/tippecanoe -j"$(nproc)"
+          PREFIX="$HOME/.local" make -C /tmp/tippecanoe install
+
+      - name: Download raw data
+        run: python src/download_data.py
+
+      - name: Prepare data
+        run: python src/prepare_data.py
+
+      # Collects test_site.py too, but its tests self-skip here: site/data/
+      # doesn't exist yet (build_tiles.py hasn't run). It's exercised for
+      # real by the "Browser smoke test" step below, after tile build.
+      - name: Test data pipeline
+        run: python -m pytest tests/ -v
+
+      - name: Build tiles
+        run: python src/build_tiles.py
+
+      - name: Install Playwright browser
+        run: playwright install --with-deps chromium
+
+      - name: Browser smoke test
+        run: python -m pytest tests/test_site.py -v
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      # Runs only if an earlier step failed (e.g. schema drift caught by
+      # pytest). data/ is gitignored and this VM is discarded at the end of
+      # the run, so without this the raw files that caused the failure
+      # would be unrecoverable. Downloadable from the failed run's Actions
+      # page for local debugging; auto-deleted after 14 days.
+      - name: Upload data snapshot on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-snapshot
+          path: data/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  deploy:
+    # Deploy only from main: covers the weekly cron (schedules run on the
+    # default branch) and pushes to main. Never reached if build fails —
+    # the site keeps serving the previous data.
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
