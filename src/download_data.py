@@ -4,8 +4,11 @@ Usage:
     python src/download_data.py
 """
 
+import gzip
 import urllib.request
 from pathlib import Path
+
+GZIP_MAGIC = b"\x1f\x8b"
 
 DATA_DIR = Path("data")
 BASE_URL = "https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets"
@@ -42,6 +45,16 @@ def download(url: str, dest: Path) -> None:
 
     print(f"  {dest.name} ...", end="", flush=True)
     urllib.request.urlretrieve(url, dest, reporthook=progress)
+    # Some IDFM exports come back gzip-compressed even without the client
+    # requesting it (observed on arrets-lignes.geojson, not on the others).
+    # Detect and decompress from the file's magic bytes rather than trusting
+    # response headers, since the actual behavior differs across datasets.
+    with dest.open("rb") as f:
+        is_gzip = f.read(2) == GZIP_MAGIC
+    if is_gzip:
+        with gzip.open(dest, "rb") as f:
+            data = f.read()
+        dest.write_bytes(data)
     print(f"\r  {dest.name} ... OK      ")
 
 

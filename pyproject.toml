@@ -1,0 +1,19 @@
+# Dependency groups (PEP 735) — install with: pip install --group <name>
+# (requires pip >= 25.1)
+
+[dependency-groups]
+# Weekly CI pipeline: download → prepare → test → build tiles → smoke test.
+ci = [
+    "pandas>=2.1",
+    "geopandas>=0.14",
+    "pytest>=8",
+    "playwright>=1.45",
+    "rangehttpserver>=1.4",
+]
+# Local development: CI tools + the exploration notebooks.
+dev = [
+    { include-group = "ci" },
+    "folium>=0.16",
+    "plotly>=5.18",
+    "nbformat>=4.2",
+]

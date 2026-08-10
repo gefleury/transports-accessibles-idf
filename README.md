@@ -1,40 +1,47 @@
 # ♿ Accessibilité PMR des transports en commun en Île-de-France
 
-Application Streamlit permettant de visualiser sur une carte l'accessibilité aux personnes à mobilité réduite (PMR) des transports en commun en Île-de-France. L'objectif est de proposer une vue d'ensemble de l'accessibilité du réseau et d'offrir la possibilité d'afficher uniquement les lignes ayant des arrêts accessibles en toute autonomie. 
-
+Application permettant de visualiser sur une carte l'accessibilité aux personnes à mobilité réduite (PMR) des transports en commun en Île-de-France. L'objectif est de proposer une vue d'ensemble de l'accessibilité du réseau et d'offrir la possibilité d'afficher uniquement les lignes ayant des arrêts accessibles en toute autonomie.
 
 ## App
-Lien vers l'application Streamlit :  
- **[https://accessibilite-transports-ile-de-france.streamlit.app/](https://accessibilite-transports-ile-de-france.streamlit.app/)** 
 
+**[https://gefleury.github.io/transports-accessibles-idf/](https://gefleury.github.io/transports-accessibles-idf/)**
 
-## Installation
+Site statique (MapLibre + PMTiles), sans backend ni base de données, mis à jour automatiquement chaque semaine.
+
+## Branches
+
+- **`main`** — production. Déployée automatiquement sur GitHub Pages via GitHub Actions (voir `.github/workflows/build-deploy.yml`) : téléchargement des données → traitement → tests → déploiement, chaque semaine et à chaque push.
+- **`dev`** — développement en cours ; fusionnée dans `main` une fois les changements validés.
+- **`streamlit-app`** — ancien prototype [Streamlit](https://streamlit.io/), archivé.
+
+## Développement
+
+Le développement se fait sur `dev`.
+
+Créer l'environnement virtuel et installer les dépendances :
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --upgrade pip  # --group nécessite pip >= 25.1
+pip install --group dev
 ```
 
-## Utilisation
-
-Pour lancer l'application en local :
-
-```bash
-streamlit run app.py
-```
-
-Les données traitées sont incluses dans le repo (voir `data/processed/`).  Pour régénérer les données traitées à partir des fichiers sources bruts, télécharger d'abord les données depuis l'API Île-de-France Mobilités :
+Télécharger les données, les préparer, puis générer les "tuiles" du site :
 
 ```bash
 python src/download_data.py
+python src/prepare_data.py
+python src/build_tiles.py   # nécessite tippecanoe
 ```
 
-Puis lancer le script de préparation :
+Puis lancer le site en local :
 
 ```bash
-python src/prepare_data.py
+cd site && python -m RangeHTTPServer 8123
 ```
+
+Et ouvrir http://localhost:8123 
 
 ## Sources des données
 
@@ -50,3 +57,7 @@ Données fournies par [Île-de-France Mobilités](https://data.iledefrance-mobil
 Le code de ce dépôt est distribué sous licence [MIT](LICENSE).
 
 Note : les données sources restent soumises à leurs licences respectives (ODbL et Licence Ouverte Etalab), indépendamment de la licence du code.
+
+## 🤖 Assistance IA
+
+Ce projet a été co-développé avec [Claude Code](https://claude.com/claude-code), l'assistant de programmation d'Anthropic.
