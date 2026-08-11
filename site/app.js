@@ -26,12 +26,19 @@ const ACCESS_LABELS = {
   "unknown": "Inconnu",
 };
 const ACCESS_DEFAULT = { "true": true, "partial": true, "false": false, "unknown": false };
-const ACCESS_FLAG = {
-  "true": "has_accessible",
-  "partial": "has_partial",
-  "false": "has_inaccessible",
-  "unknown": "has_unknown",
+const ACCESS_COUNT_FIELD = {
+  "true": "count_accessible",
+  "partial": "count_partial",
+  "false": "count_inaccessible",
+  "unknown": "count_unknown",
 };
+// A line needs at least this many stops matching the selected accessibility
+// criteria to be considered usable — a single matching stop isn't enough to
+// board and alight accessibly.
+const MIN_MATCHING_STOPS = 2;
+document.getElementById("lines-hint").textContent =
+  `ℹ️ Seules les lignes ayant au moins ${MIN_MATCHING_STOPS} arrêts correspondant ` +
+  "à l'accessibilité sélectionnée sont affichées et proposées dans les listes.";
 const MODE_DEFAULT_ON = new Set(["Métro", "RER", "Tramway"]);
 const SEARCH_THRESHOLD = 12;  // add a search box above lists longer than this
 
@@ -49,7 +56,9 @@ const selectedAccess = () => Object.keys(accessState).filter(k => accessState[k]
 
 // ── Filtering logic (mirrors apply_filters in the Streamlit app) ─────────────
 function lineMatchesAccess(line, access) {
-  return access.length === 0 || access.some(k => line[ACCESS_FLAG[k]]);
+  if (access.length === 0) return true;
+  const matchingStops = access.reduce((sum, k) => sum + line[ACCESS_COUNT_FIELD[k]], 0);
+  return matchingStops >= MIN_MATCHING_STOPS;
 }
 
 // Line options offered in a mode's list: filtered by accessibility and, for
@@ -102,9 +111,9 @@ let shownLineCount = 0;
 function updateStats() {
   let text = `${shownLineCount} ligne(s) affichée(s)`;
   if (selectedAccess().length > 0 && map.getZoom() < stopsMinzoom) {
-    text += " — zoomez pour afficher les arrêts";
+    text += ' | <span class="zoom-hint">Zoomez pour afficher les arrêts</span>';
   }
-  document.getElementById("stats").textContent = text;
+  document.getElementById("stats").innerHTML = text;
 }
 
 // ── Sidebar widgets ──────────────────────────────────────────────────────────
@@ -331,6 +340,13 @@ const STOPS_LAYER = {
   type: "circle",
   source: "transports",
   "source-layer": "stops",
+  // When a physical stop has both a confirmed-status line and an
+  // unknown-status one stacked at the same point (both visible only if
+  // "Inconnu" is checked), draw the confirmed one on top — otherwise which
+  // color wins would be an arbitrary artifact of tile feature order.
+  layout: {
+    "circle-sort-key": ["match", ["get", "ArRAccessibility"], "unknown", 0, 1],
+  },
   paint: {
     "circle-color": ["match", ["get", "ArRAccessibility"],
       ...Object.entries(ACCESS_COLORS).flat(),
@@ -371,6 +387,42 @@ map.on("zoomend", updateStats);
 // line or a stop (stops take priority when both are under the cursor).
 const hoverPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
 
+// Several lines can share a physical stop, stacked at the same point on the
+// map (e.g. Persan - Beaumont: TER + Transilien H). Keep one entry per
+// (stop_id, route_long_name) — MapLibre can also report the same feature
+// twice across a tile boundary, which this same dedup absorbs.
+function dedupeStopLines(stopFeatures) {
+  const seen = new Set();
+  const lines = [];
+  for (const f of stopFeatures) {
+    const p = f.properties;
+    const key = `${p.stop_id}|${p.route_long_name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push(p);
+  }
+  return lines;
+}
+
+function accessBadge(status) {
+  return `<span style="color:${ACCESS_COLORS[status]}">♿ <b>${ACCESS_LABELS[status]}</b></span>`;
+}
+
+// One row per line serving the stop, instead of showing only whichever
+// stacked feature happened to render on top.
+function stopPopupHtml(stopFeatures) {
+  const lines = dedupeStopLines(stopFeatures);
+  const lineRows = lines
+    .map(p => `${p.mode}, Ligne ${p.route_long_name}<br>${accessBadge(p.ArRAccessibility)}`)
+    .join("<hr>");
+  return `<b>Arrêt « ${lines[0].stop_name} »</b><br>${lineRows}`;
+}
+
+function linePopupHtml(lineFeature) {
+  const p = lineFeature.properties;
+  return `<b>Ligne ${p.route_long_name}</b><br>${p.mode} (${p.operatorname})`;
+}
+
 map.on("mousemove", e => {
   const features = map.queryRenderedFeatures(e.point, { layers: ["stops", "lines"] });
   if (!features.length) {
@@ -379,11 +431,9 @@ map.on("mousemove", e => {
     return;
   }
   map.getCanvas().style.cursor = "pointer";
-  const p = features[0].properties;
-  const html = features[0].layer.id === "stops"
-    ? `<b>Arrêt « ${p.stop_name} »</b><br>${p.mode}, Ligne ${p.route_long_name}<br>` +
-      `<span style="color:${ACCESS_COLORS[p.ArRAccessibility]}">♿ <b>${ACCESS_LABELS[p.ArRAccessibility]}</b></span>`
-    : `<b>Ligne ${p.route_long_name}</b><br>${p.mode} (${p.operatorname})`;
+
+  const stopFeatures = features.filter(f => f.layer.id === "stops");
+  const html = stopFeatures.length ? stopPopupHtml(stopFeatures) : linePopupHtml(features[0]);
   hoverPopup.setLngLat(e.lngLat).setHTML(html).addTo(map);
 });
 map.on("mouseout", () => {

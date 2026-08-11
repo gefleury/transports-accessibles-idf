@@ -12,7 +12,7 @@ Site statique (MapLibre + PMTiles), sans backend ni base de données, mis à jou
 
 - **`main`** — production. Déployée automatiquement sur GitHub Pages via GitHub Actions (voir `.github/workflows/build-deploy.yml`) : téléchargement des données → traitement → tests → déploiement, chaque semaine et à chaque push.
 - **`dev`** — développement en cours ; fusionnée dans `main` une fois les changements validés.
-- **`streamlit-app`** — ancien prototype [Streamlit](https://streamlit.io/), archivé.
+- **`streamlit-app`** — ancien prototype [Streamlit](https://accessibilite-transports-ile-de-france.streamlit.app/), archivé.
 
 ## Développement
 

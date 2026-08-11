@@ -74,6 +74,13 @@ body {
   font-size: 12px;
 }
 
+.zoom-hint {
+  font-weight: 600;
+  background: #eee;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
 #map-wrap {
   flex: 1;
   display: flex;

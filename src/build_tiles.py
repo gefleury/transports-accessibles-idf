@@ -31,10 +31,10 @@ LINES_JSON_ATTRIBUTES = [
     "route_long_name",
     "mode",
     "operatorname",
-    "has_accessible",
-    "has_partial",
-    "has_inaccessible",
-    "has_unknown",
+    "count_accessible",
+    "count_partial",
+    "count_inaccessible",
+    "count_unknown",
 ]
 
 # Zoom range of the generated tiles. Below MIN_ZOOM the map shows only the
@@ -56,10 +56,10 @@ LINES_ATTRIBUTES = [
     "mode",
     "operatorname",
     "route_color",
-    "has_accessible",
-    "has_partial",
-    "has_inaccessible",
-    "has_unknown",
+    "count_accessible",
+    "count_partial",
+    "count_inaccessible",
+    "count_unknown",
 ]
 STOPS_ATTRIBUTES = [
     "stop_id",
@@ -116,7 +116,8 @@ def build_layer(tippecanoe: str, spec: dict, out: Path) -> None:
     run(
         [
             tippecanoe,
-            "-o", str(out),
+            "-o",
+            str(out),
             "--force",
             f"--layer={spec['layer']}",
             f"--minimum-zoom={spec['min_zoom']}",
@@ -176,7 +177,8 @@ def main() -> None:
         run(
             [
                 tile_join,
-                "-o", str(OUT_PATH),
+                "-o",
+                str(OUT_PATH),
                 "--force",
                 "--no-tile-size-limit",
                 *[str(tmp / f"{spec['layer']}.pmtiles") for spec in LAYERS],

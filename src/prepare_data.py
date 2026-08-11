@@ -86,7 +86,9 @@ def prepare_stops(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     ].copy()
 
 
-def prepare_accessibility_bus(df: pd.DataFrame, gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
+def prepare_accessibility_bus(
+    df: pd.DataFrame, gdf_stops: gpd.GeoDataFrame
+) -> pd.DataFrame:
     """Clean the bus stop accessibility file (sdap-arrets-associes.csv).
 
     Joins with gdf_stops on (stop_id, route_id) to get route_long_name —
@@ -94,17 +96,20 @@ def prepare_accessibility_bus(df: pd.DataFrame, gdf_stops: gpd.GeoDataFrame) -> 
     to arraccessibility / route_id vs the old ArRAccessibility / route_long_name).
     Returns one row per (stop_id, route_long_name) pair with ArRAccessibility.
     """
-    bus_stop_lines = (
-        gdf_stops[gdf_stops["mode"] == "Bus"][["stop_id", "id", "route_long_name"]]
-        .drop_duplicates()
-    )
+    bus_stop_lines = gdf_stops[gdf_stops["mode"] == "Bus"][
+        ["stop_id", "id", "route_long_name"]
+    ].drop_duplicates()
     return (
         df[["stop_id", "route_id", "arraccessibility"]]
         .drop_duplicates(subset=["stop_id", "route_id"])
         .rename(columns={"arraccessibility": "ArRAccessibility"})
         .fillna({"ArRAccessibility": "unknown"})
-        .merge(bus_stop_lines, left_on=["stop_id", "route_id"], right_on=["stop_id", "id"], how="inner")
-        [["stop_id", "route_long_name", "ArRAccessibility"]]
+        .merge(
+            bus_stop_lines,
+            left_on=["stop_id", "route_id"],
+            right_on=["stop_id", "id"],
+            how="inner",
+        )[["stop_id", "route_long_name", "ArRAccessibility"]]
         .drop_duplicates(subset=["stop_id", "route_long_name"])
         .reset_index(drop=True)
     )
@@ -160,10 +165,13 @@ def prepare_accessibility_metro(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
         return "false"
 
     out = (
-        gdf_stops[gdf_stops["mode"] == "Metro"][["stop_id", "route_long_name", "stop_name"]]
+        gdf_stops[gdf_stops["mode"] == "Metro"][
+            ["stop_id", "route_long_name", "stop_name"]
+        ]
         .drop_duplicates(subset=["stop_id", "route_long_name"])
-        .assign(ArRAccessibility=lambda df: df.apply(get_status, axis=1))
-        [["stop_id", "route_long_name", "ArRAccessibility"]]
+        .assign(ArRAccessibility=lambda df: df.apply(get_status, axis=1))[
+            ["stop_id", "route_long_name", "ArRAccessibility"]
+        ]
         .reset_index(drop=True)
     )
     return out
@@ -191,10 +199,9 @@ def prepare_accessibility_train(
     )
     accessibility = accessibility[["stop_id", "ArRAccessibility"]]
 
-    train_stop_lines = (
-        gdf_stops[gdf_stops["mode"].isin(train_modes)][["stop_id", "route_long_name"]]
-        .drop_duplicates()
-    )
+    train_stop_lines = gdf_stops[gdf_stops["mode"].isin(train_modes)][
+        ["stop_id", "route_long_name"]
+    ].drop_duplicates()
     return (
         train_stop_lines.merge(accessibility, on="stop_id", how="left")
         .fillna({"ArRAccessibility": "unknown"})
@@ -211,7 +218,14 @@ def join_stops_to_lines(
     kept — orphan stops are discarded automatically.
     """
     lines_meta = lines.drop(columns=["geometry"]).drop_duplicates(subset="route_id")[
-        ["route_id", "route_type", "route_short_name", "route_long_name", "route_color", "mode"]
+        [
+            "route_id",
+            "route_type",
+            "route_short_name",
+            "route_long_name",
+            "route_color",
+            "mode",
+        ]
     ]
     enriched = (
         lines_meta.merge(stops, left_on="route_id", right_on="id", how="left")
@@ -234,7 +248,9 @@ def join_accessibility(
     Stops with no match get "unknown" in ArRAccessibility.
     """
     combined = pd.concat(accessibility_dfs, ignore_index=True)
-    combined = combined.drop_duplicates(subset=["stop_id", "route_long_name"], keep="last")
+    combined = combined.drop_duplicates(
+        subset=["stop_id", "route_long_name"], keep="last"
+    )
     enriched = stops.merge(combined, on=["stop_id", "route_long_name"], how="left")
     enriched["ArRAccessibility"] = enriched["ArRAccessibility"].fillna("unknown")
     return gpd.GeoDataFrame(enriched, geometry="geometry", crs=stops.crs)
@@ -244,29 +260,34 @@ def join_line_accessibility(
     lines: gpd.GeoDataFrame,
     stops: gpd.GeoDataFrame,
 ) -> gpd.GeoDataFrame:
-    """Add per-line accessibility summary flags to lines.
+    """Add per-line accessibility stop counts to lines.
 
-    For each route, computes whether it has at least one stop for each
-    accessibility status (has_accessible, has_partial, has_inaccessible,
-    has_unknown), then left-joins onto lines.
+    For each route, counts its stops for each accessibility status
+    (count_accessible, count_partial, count_inaccessible, count_unknown),
+    then left-joins onto lines. The frontend requires at least 2 matching
+    stops for a line to be considered usable under a given filter — a
+    single matching stop isn't enough to board and alight accessibly.
     Must be called after join_accessibility so stops already have ArRAccessibility.
     """
     status_cols = {
-        "true": "has_accessible",
-        "partial": "has_partial",
-        "false": "has_inaccessible",
-        "unknown": "has_unknown",
+        "true": "count_accessible",
+        "partial": "count_partial",
+        "false": "count_inaccessible",
+        "unknown": "count_unknown",
     }
-    # One set of accessibility values per route (stops["id"] == lines route_id)
-    summary = stops.groupby("id")["ArRAccessibility"].apply(set).reset_index()
-    for status, col in status_cols.items():
-        summary[col] = summary["ArRAccessibility"].apply(lambda s, v=status: v in s)
-    summary = summary.drop(columns=["ArRAccessibility"])
+    counts = (
+        stops.groupby(["id", "ArRAccessibility"])
+        .size()
+        .unstack(fill_value=0)
+        .rename(columns=status_cols)
+        .reindex(columns=list(status_cols.values()), fill_value=0)
+        .reset_index()
+    )
 
-    enriched = lines.merge(summary, left_on="route_id", right_on="id", how="left")
+    enriched = lines.merge(counts, left_on="route_id", right_on="id", how="left")
     enriched = enriched.drop(columns=["id"])
     for col in status_cols.values():
-        enriched[col] = enriched[col].fillna(False).astype(bool)
+        enriched[col] = enriched[col].fillna(0).astype(int)
     return gpd.GeoDataFrame(enriched, geometry="geometry", crs=lines.crs)
 
 
@@ -288,7 +309,13 @@ def main():
     stops = prepare_stops(gdf_stops)
     stops = join_stops_to_lines(lines, stops)
     # Precedence: bus < tramway < metro < train (last wins on duplicate stop_id)
-    stops = join_accessibility(stops, accessibility_bus, accessibility_tramway, accessibility_metro, accessibility_train)
+    stops = join_accessibility(
+        stops,
+        accessibility_bus,
+        accessibility_tramway,
+        accessibility_metro,
+        accessibility_train,
+    )
     stops.to_file(OUT_STOPS, driver="GeoJSON")
     print(f"  Written {len(stops)} stops → {OUT_STOPS}")
 

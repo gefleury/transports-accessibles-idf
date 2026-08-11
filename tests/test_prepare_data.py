@@ -14,6 +14,7 @@ Run with:
 """
 
 import sys
+import warnings
 
 sys.path.insert(0, "src")
 
@@ -168,6 +169,21 @@ def test_metro_output_columns(metro_accessibility):
         assert col in metro_accessibility.columns
 
 
+@skip_if_no_data
+def test_metro_lines_are_all_known(gdf_stops):
+    """prepare_accessibility_metro's rules (line >= 14 accessible, line 11
+    named stations accessible, else inaccessible) were written for today's
+    Paris metro lines. Warns (doesn't fail — the CI workflow turns this into
+    a GitHub issue) if IDFM data ever includes a line outside this set, so
+    the rules get reviewed before being trusted for it.
+    """
+    known_lines = {str(n) for n in range(1, 15)} | {"3B", "7B"}
+    actual_lines = set(gdf_stops[gdf_stops["mode"] == "Metro"]["route_long_name"].unique())
+    unknown = actual_lines - known_lines
+    if unknown:
+        warnings.warn(f"Unknown metro line(s) in data, review prepare_accessibility_metro: {unknown}")
+
+
 # ── End-to-end tests on the processed GeoJSON files ─────────────────────────
 # These catch bugs in join_accessibility, join_stops_to_lines, and
 # join_line_accessibility that individual prepare_* tests would miss.
@@ -230,7 +246,7 @@ def test_metro_line_14_has_accessible_flag(processed_lines):
         (processed_lines["mode"] == "Métro") & (processed_lines["route_long_name"] == "14")
     ]
     assert not line_14.empty, "Metro line 14 not found in processed lines"
-    assert line_14["has_accessible"].all(), "Metro line 14 should have has_accessible=True"
+    assert (line_14["count_accessible"] > 0).all(), "Metro line 14 should have count_accessible > 0"
 
 
 @skip_if_no_processed
@@ -239,20 +255,40 @@ def test_metro_line_11_has_both_accessible_and_inaccessible_flags(processed_line
         (processed_lines["mode"] == "Métro") & (processed_lines["route_long_name"] == "11")
     ]
     assert not line_11.empty, "Metro line 11 not found in processed lines"
-    assert line_11["has_accessible"].any(), "Metro line 11 should have has_accessible=True"
-    assert line_11["has_inaccessible"].any(), "Metro line 11 should have has_inaccessible=True"
+    assert (line_11["count_accessible"] > 0).any(), "Metro line 11 should have count_accessible > 0"
+    assert (line_11["count_inaccessible"] > 0).any(), "Metro line 11 should have count_inaccessible > 0"
 
 
 @skip_if_no_processed
-def test_lines_accessibility_flags_are_boolean(processed_lines):
-    for col in ("has_accessible", "has_partial", "has_inaccessible", "has_unknown"):
+def test_lines_accessibility_counts_are_non_negative_ints(processed_lines):
+    for col in ("count_accessible", "count_partial", "count_inaccessible", "count_unknown"):
         assert col in processed_lines.columns, f"Missing column: {col}"
-        unexpected = set(processed_lines[col].unique()) - {True, False}
-        assert not unexpected, f"Column {col} contains non-boolean values: {unexpected}"
+        assert (processed_lines[col] >= 0).all(), f"Column {col} contains negative values"
 
 
 @skip_if_no_processed
 def test_no_stops_with_missing_mode(processed_stops):
     assert not processed_stops["mode"].isna().any(), (
         "Some stops have no mode — orphan stops may be leaking into the output"
+    )
+
+
+@skip_if_no_processed
+def test_no_stop_mixes_two_confirmed_accessibility_statuses(processed_stops):
+    """A physical stop can have several rows, one per line (see prepare_data.py
+    module docstring). In practice, no stop has ever mixed two different
+    *confirmed* statuses (true/partial/false) across its lines — only a
+    confirmed status alongside "unknown" (no data) on another line.
+
+    If this ever fails, real mixed-status stops exist: a single dot can no
+    longer represent a stop's accessibility without losing information, and
+    the map should show both ends of the range (e.g. a two-tone marker)
+    instead of one color, as this test's failure signals it's time to revisit.
+    """
+    confirmed = processed_stops[processed_stops["ArRAccessibility"] != "unknown"]
+    distinct_per_stop = confirmed.groupby("stop_id")["ArRAccessibility"].nunique()
+    offenders = distinct_per_stop[distinct_per_stop > 1]
+    assert offenders.empty, (
+        f"{len(offenders)} stop(s) mix two different confirmed accessibility "
+        f"statuses, e.g. stop_id={offenders.index[0]!r}"
     )
