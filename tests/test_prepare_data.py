@@ -230,7 +230,7 @@ def test_metro_line_14_has_accessible_flag(processed_lines):
         (processed_lines["mode"] == "Métro") & (processed_lines["route_long_name"] == "14")
     ]
     assert not line_14.empty, "Metro line 14 not found in processed lines"
-    assert line_14["has_accessible"].all(), "Metro line 14 should have has_accessible=True"
+    assert (line_14["count_accessible"] > 0).all(), "Metro line 14 should have count_accessible > 0"
 
 
 @skip_if_no_processed
@@ -239,16 +239,15 @@ def test_metro_line_11_has_both_accessible_and_inaccessible_flags(processed_line
         (processed_lines["mode"] == "Métro") & (processed_lines["route_long_name"] == "11")
     ]
     assert not line_11.empty, "Metro line 11 not found in processed lines"
-    assert line_11["has_accessible"].any(), "Metro line 11 should have has_accessible=True"
-    assert line_11["has_inaccessible"].any(), "Metro line 11 should have has_inaccessible=True"
+    assert (line_11["count_accessible"] > 0).any(), "Metro line 11 should have count_accessible > 0"
+    assert (line_11["count_inaccessible"] > 0).any(), "Metro line 11 should have count_inaccessible > 0"
 
 
 @skip_if_no_processed
-def test_lines_accessibility_flags_are_boolean(processed_lines):
-    for col in ("has_accessible", "has_partial", "has_inaccessible", "has_unknown"):
+def test_lines_accessibility_counts_are_non_negative_ints(processed_lines):
+    for col in ("count_accessible", "count_partial", "count_inaccessible", "count_unknown"):
         assert col in processed_lines.columns, f"Missing column: {col}"
-        unexpected = set(processed_lines[col].unique()) - {True, False}
-        assert not unexpected, f"Column {col} contains non-boolean values: {unexpected}"
+        assert (processed_lines[col] >= 0).all(), f"Column {col} contains negative values"
 
 
 @skip_if_no_processed

@@ -26,12 +26,19 @@ const ACCESS_LABELS = {
   "unknown": "Inconnu",
 };
 const ACCESS_DEFAULT = { "true": true, "partial": true, "false": false, "unknown": false };
-const ACCESS_FLAG = {
-  "true": "has_accessible",
-  "partial": "has_partial",
-  "false": "has_inaccessible",
-  "unknown": "has_unknown",
+const ACCESS_COUNT_FIELD = {
+  "true": "count_accessible",
+  "partial": "count_partial",
+  "false": "count_inaccessible",
+  "unknown": "count_unknown",
 };
+// A line needs at least this many stops matching the selected accessibility
+// criteria to be considered usable — a single matching stop isn't enough to
+// board and alight accessibly.
+const MIN_MATCHING_STOPS = 2;
+document.getElementById("lines-hint").textContent =
+  `ℹ️ Seules les lignes ayant au moins ${MIN_MATCHING_STOPS} arrêts correspondant ` +
+  "à l'accessibilité sélectionnée sont affichées et proposées dans les listes.";
 const MODE_DEFAULT_ON = new Set(["Métro", "RER", "Tramway"]);
 const SEARCH_THRESHOLD = 12;  // add a search box above lists longer than this
 
@@ -49,7 +56,9 @@ const selectedAccess = () => Object.keys(accessState).filter(k => accessState[k]
 
 // ── Filtering logic (mirrors apply_filters in the Streamlit app) ─────────────
 function lineMatchesAccess(line, access) {
-  return access.length === 0 || access.some(k => line[ACCESS_FLAG[k]]);
+  if (access.length === 0) return true;
+  const matchingStops = access.reduce((sum, k) => sum + line[ACCESS_COUNT_FIELD[k]], 0);
+  return matchingStops >= MIN_MATCHING_STOPS;
 }
 
 // Line options offered in a mode's list: filtered by accessibility and, for

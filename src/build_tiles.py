@@ -31,10 +31,10 @@ LINES_JSON_ATTRIBUTES = [
     "route_long_name",
     "mode",
     "operatorname",
-    "has_accessible",
-    "has_partial",
-    "has_inaccessible",
-    "has_unknown",
+    "count_accessible",
+    "count_partial",
+    "count_inaccessible",
+    "count_unknown",
 ]
 
 # Zoom range of the generated tiles. Below MIN_ZOOM the map shows only the
@@ -56,10 +56,10 @@ LINES_ATTRIBUTES = [
     "mode",
     "operatorname",
     "route_color",
-    "has_accessible",
-    "has_partial",
-    "has_inaccessible",
-    "has_unknown",
+    "count_accessible",
+    "count_partial",
+    "count_inaccessible",
+    "count_unknown",
 ]
 STOPS_ATTRIBUTES = [
     "stop_id",
