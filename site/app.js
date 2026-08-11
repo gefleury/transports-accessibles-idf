@@ -331,6 +331,13 @@ const STOPS_LAYER = {
   type: "circle",
   source: "transports",
   "source-layer": "stops",
+  // When a physical stop has both a confirmed-status line and an
+  // unknown-status one stacked at the same point (both visible only if
+  // "Inconnu" is checked), draw the confirmed one on top — otherwise which
+  // color wins would be an arbitrary artifact of tile feature order.
+  layout: {
+    "circle-sort-key": ["match", ["get", "ArRAccessibility"], "unknown", 0, 1],
+  },
   paint: {
     "circle-color": ["match", ["get", "ArRAccessibility"],
       ...Object.entries(ACCESS_COLORS).flat(),
@@ -371,6 +378,42 @@ map.on("zoomend", updateStats);
 // line or a stop (stops take priority when both are under the cursor).
 const hoverPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
 
+// Several lines can share a physical stop, stacked at the same point on the
+// map (e.g. Persan - Beaumont: TER + Transilien H). Keep one entry per
+// (stop_id, route_long_name) — MapLibre can also report the same feature
+// twice across a tile boundary, which this same dedup absorbs.
+function dedupeStopLines(stopFeatures) {
+  const seen = new Set();
+  const lines = [];
+  for (const f of stopFeatures) {
+    const p = f.properties;
+    const key = `${p.stop_id}|${p.route_long_name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push(p);
+  }
+  return lines;
+}
+
+function accessBadge(status) {
+  return `<span style="color:${ACCESS_COLORS[status]}">♿ <b>${ACCESS_LABELS[status]}</b></span>`;
+}
+
+// One row per line serving the stop, instead of showing only whichever
+// stacked feature happened to render on top.
+function stopPopupHtml(stopFeatures) {
+  const lines = dedupeStopLines(stopFeatures);
+  const lineRows = lines
+    .map(p => `${p.mode}, Ligne ${p.route_long_name}<br>${accessBadge(p.ArRAccessibility)}`)
+    .join("<hr>");
+  return `<b>Arrêt « ${lines[0].stop_name} »</b><br>${lineRows}`;
+}
+
+function linePopupHtml(lineFeature) {
+  const p = lineFeature.properties;
+  return `<b>Ligne ${p.route_long_name}</b><br>${p.mode} (${p.operatorname})`;
+}
+
 map.on("mousemove", e => {
   const features = map.queryRenderedFeatures(e.point, { layers: ["stops", "lines"] });
   if (!features.length) {
@@ -379,11 +422,9 @@ map.on("mousemove", e => {
     return;
   }
   map.getCanvas().style.cursor = "pointer";
-  const p = features[0].properties;
-  const html = features[0].layer.id === "stops"
-    ? `<b>Arrêt « ${p.stop_name} »</b><br>${p.mode}, Ligne ${p.route_long_name}<br>` +
-      `<span style="color:${ACCESS_COLORS[p.ArRAccessibility]}">♿ <b>${ACCESS_LABELS[p.ArRAccessibility]}</b></span>`
-    : `<b>Ligne ${p.route_long_name}</b><br>${p.mode} (${p.operatorname})`;
+
+  const stopFeatures = features.filter(f => f.layer.id === "stops");
+  const html = stopFeatures.length ? stopPopupHtml(stopFeatures) : linePopupHtml(features[0]);
   hoverPopup.setLngLat(e.lngLat).setHTML(html).addTo(map);
 });
 map.on("mouseout", () => {

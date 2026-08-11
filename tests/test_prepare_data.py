@@ -256,3 +256,24 @@ def test_no_stops_with_missing_mode(processed_stops):
     assert not processed_stops["mode"].isna().any(), (
         "Some stops have no mode — orphan stops may be leaking into the output"
     )
+
+
+@skip_if_no_processed
+def test_no_stop_mixes_two_confirmed_accessibility_statuses(processed_stops):
+    """A physical stop can have several rows, one per line (see prepare_data.py
+    module docstring). In practice, no stop has ever mixed two different
+    *confirmed* statuses (true/partial/false) across its lines — only a
+    confirmed status alongside "unknown" (no data) on another line.
+
+    If this ever fails, real mixed-status stops exist: a single dot can no
+    longer represent a stop's accessibility without losing information, and
+    the map should show both ends of the range (e.g. a two-tone marker)
+    instead of one color, as this test's failure signals it's time to revisit.
+    """
+    confirmed = processed_stops[processed_stops["ArRAccessibility"] != "unknown"]
+    distinct_per_stop = confirmed.groupby("stop_id")["ArRAccessibility"].nunique()
+    offenders = distinct_per_stop[distinct_per_stop > 1]
+    assert offenders.empty, (
+        f"{len(offenders)} stop(s) mix two different confirmed accessibility "
+        f"statuses, e.g. stop_id={offenders.index[0]!r}"
+    )

@@ -116,7 +116,8 @@ def build_layer(tippecanoe: str, spec: dict, out: Path) -> None:
     run(
         [
             tippecanoe,
-            "-o", str(out),
+            "-o",
+            str(out),
             "--force",
             f"--layer={spec['layer']}",
             f"--minimum-zoom={spec['min_zoom']}",
@@ -176,7 +177,8 @@ def main() -> None:
         run(
             [
                 tile_join,
-                "-o", str(OUT_PATH),
+                "-o",
+                str(OUT_PATH),
                 "--force",
                 "--no-tile-size-limit",
                 *[str(tmp / f"{spec['layer']}.pmtiles") for spec in LAYERS],
