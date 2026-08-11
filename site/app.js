@@ -111,9 +111,9 @@ let shownLineCount = 0;
 function updateStats() {
   let text = `${shownLineCount} ligne(s) affichée(s)`;
   if (selectedAccess().length > 0 && map.getZoom() < stopsMinzoom) {
-    text += " — zoomez pour afficher les arrêts";
+    text += ' | <span class="zoom-hint">Zoomez pour afficher les arrêts</span>';
   }
-  document.getElementById("stats").textContent = text;
+  document.getElementById("stats").innerHTML = text;
 }
 
 // ── Sidebar widgets ──────────────────────────────────────────────────────────
