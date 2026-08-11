@@ -13,6 +13,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  issues: write
 
 # Never run two deployments at once; let a running one finish.
 concurrency:
@@ -66,7 +67,26 @@ jobs:
       # doesn't exist yet (build_tiles.py hasn't run). It's exercised for
       # real by the "Browser smoke test" step below, after tile build.
       - name: Test data pipeline
-        run: python -m pytest tests/ -v
+        run: python -m pytest tests/ -v | tee pytest-output.log
+
+      # test_metro_lines_are_all_known warns (doesn't fail) if IDFM data
+      # includes a metro line prepare_accessibility_metro's rules weren't
+      # written for — open an issue so it's noticed without blocking deploy.
+      - name: Notify on unknown metro lines
+        run: |
+          title="Unknown metro line(s) in IDFM data"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if grep -q "Unknown metro line" pytest-output.log; then
+            existing=$(gh issue list --state open --search "$title in:title" --json number -q '.[0].number')
+            if [ -n "$existing" ]; then
+              gh issue comment "$existing" --body "Still happening: $run_url"
+            else
+              gh issue create --title "$title" \
+                --body "prepare_accessibility_metro's rules may need updating — see run: $run_url"
+            fi
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Build tiles
         run: python src/build_tiles.py

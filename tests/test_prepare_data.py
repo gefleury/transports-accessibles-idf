@@ -14,6 +14,7 @@ Run with:
 """
 
 import sys
+import warnings
 
 sys.path.insert(0, "src")
 
@@ -166,6 +167,21 @@ def test_metro_output_values_are_valid(metro_accessibility):
 def test_metro_output_columns(metro_accessibility):
     for col in ("stop_id", "route_long_name", "ArRAccessibility"):
         assert col in metro_accessibility.columns
+
+
+@skip_if_no_data
+def test_metro_lines_are_all_known(gdf_stops):
+    """prepare_accessibility_metro's rules (line >= 14 accessible, line 11
+    named stations accessible, else inaccessible) were written for today's
+    Paris metro lines. Warns (doesn't fail — the CI workflow turns this into
+    a GitHub issue) if IDFM data ever includes a line outside this set, so
+    the rules get reviewed before being trusted for it.
+    """
+    known_lines = {str(n) for n in range(1, 15)} | {"3B", "7B"}
+    actual_lines = set(gdf_stops[gdf_stops["mode"] == "Metro"]["route_long_name"].unique())
+    unknown = actual_lines - known_lines
+    if unknown:
+        warnings.warn(f"Unknown metro line(s) in data, review prepare_accessibility_metro: {unknown}")
 
 
 # ── End-to-end tests on the processed GeoJSON files ─────────────────────────
