@@ -116,16 +116,35 @@ def prepare_accessibility_bus(
 
 
 def prepare_accessibility_tramway(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
-    """Mark all tramway stops as accessible.
+    """Assign wheelchair accessibility to tramway stops.
 
     Tramway lines in Île-de-France are fully accessible by design (low-floor
-    vehicles, level boarding). Returns one row per unique (stop_id,
-    route_long_name) pair with ArRAccessibility = "true".
+    vehicles, level boarding), except T14 (a former SNCF line predating this
+    design): all its stations are inaccessible except "Esbly", which is
+    partially accessible.
+    Returns one row per unique (stop_id, route_long_name) pair.
     """
+    t14_status = {
+        "Couilly - Saint-Germain - Quincy": "false",
+        "Crécy-la-Chapelle": "false",
+        "Esbly": "partial",
+        "Montry - Condé": "false",
+        "Villiers Montbarbin": "false",
+    }
+
+    def get_status(row) -> str:
+        if row["route_long_name"] != "T14":
+            return "true"
+        return t14_status[row["stop_name"]]
+
     return (
-        gdf_stops[gdf_stops["mode"] == "Tramway"][["stop_id", "route_long_name"]]
-        .drop_duplicates()
-        .assign(ArRAccessibility="true")
+        gdf_stops[gdf_stops["mode"] == "Tramway"][
+            ["stop_id", "route_long_name", "stop_name"]
+        ]
+        .drop_duplicates(subset=["stop_id", "route_long_name"])
+        .assign(ArRAccessibility=lambda df: df.apply(get_status, axis=1))[
+            ["stop_id", "route_long_name", "ArRAccessibility"]
+        ]
         .reset_index(drop=True)
     )
 
@@ -207,6 +226,44 @@ def prepare_accessibility_train(
         .fillna({"ArRAccessibility": "unknown"})
         .reset_index(drop=True)
     )
+
+
+def prepare_accessibility_fixed_line(
+    gdf_stops: gpd.GeoDataFrame, mode: str, line_status: dict[str, str]
+) -> pd.DataFrame:
+    """Assign fixed per-line accessibility to stops of a given mode.
+
+    A new, unlisted line for this mode raises KeyError rather than being
+    silently assumed accessible.
+    Returns one row per unique (stop_id, route_long_name) pair.
+    """
+
+    def get_status(row) -> str:
+        return line_status[row["route_long_name"]]
+
+    return (
+        gdf_stops[gdf_stops["mode"] == mode][["stop_id", "route_long_name"]]
+        .drop_duplicates()
+        .assign(ArRAccessibility=lambda df: df.apply(get_status, axis=1))
+        .reset_index(drop=True)
+    )
+
+
+def prepare_accessibility_airport_shuttle(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
+    """CDG VAL and Orlyval are both fully accessible."""
+    return prepare_accessibility_fixed_line(
+        gdf_stops, "RailShuttle", {"CDG VAL": "true", "ORLYVAL": "true"}
+    )
+
+
+def prepare_accessibility_cableway(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
+    """C1 is fully accessible."""
+    return prepare_accessibility_fixed_line(gdf_stops, "CableWay", {"C1": "true"})
+
+
+def prepare_accessibility_funicular(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
+    """FUNICULAIRE is fully accessible."""
+    return prepare_accessibility_fixed_line(gdf_stops, "Funicular", {"FUNICULAIRE": "true"})
 
 
 def join_stops_to_lines(
@@ -305,16 +362,23 @@ def main():
     accessibility_tramway = prepare_accessibility_tramway(gdf_stops)
     accessibility_metro = prepare_accessibility_metro(gdf_stops)
     accessibility_train = prepare_accessibility_train(df_accessibility_train, gdf_stops)
+    accessibility_airport_shuttle = prepare_accessibility_airport_shuttle(gdf_stops)
+    accessibility_cableway = prepare_accessibility_cableway(gdf_stops)
+    accessibility_funicular = prepare_accessibility_funicular(gdf_stops)
     lines = prepare_lines(gdf_lines, gdf_stops)
     stops = prepare_stops(gdf_stops)
     stops = join_stops_to_lines(lines, stops)
-    # Precedence: bus < tramway < metro < train (last wins on duplicate stop_id)
+    # Precedence: bus < tramway < metro < train < airport shuttle < cableway < funicular
+    # (last wins on duplicate stop_id)
     stops = join_accessibility(
         stops,
         accessibility_bus,
         accessibility_tramway,
         accessibility_metro,
         accessibility_train,
+        accessibility_airport_shuttle,
+        accessibility_cableway,
+        accessibility_funicular,
     )
     stops.to_file(OUT_STOPS, driver="GeoJSON")
     print(f"  Written {len(stops)} stops → {OUT_STOPS}")
