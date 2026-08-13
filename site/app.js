@@ -388,15 +388,16 @@ map.on("zoomend", updateStats);
 const hoverPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
 
 // Several lines can share a physical stop, stacked at the same point on the
-// map (e.g. Persan - Beaumont: TER + Transilien H). Keep one entry per
-// (stop_id, route_long_name) — MapLibre can also report the same feature
-// twice across a tile boundary, which this same dedup absorbs.
+// map (e.g. Persan - Beaumont: TER + Transilien H) — keep one entry per
+// (mode, route_long_name, stop_name). This also absorbs the same feature
+// reported twice across a tile boundary, and a single line's two separate
+// direction platforms (different stop_id, same station) at low zoom.
 function dedupeStopLines(stopFeatures) {
   const seen = new Set();
   const lines = [];
   for (const f of stopFeatures) {
     const p = f.properties;
-    const key = `${p.stop_id}|${p.route_long_name}`;
+    const key = `${p.mode}|${p.route_long_name}|${p.stop_name}`;
     if (seen.has(key)) continue;
     seen.add(key);
     lines.push(p);
