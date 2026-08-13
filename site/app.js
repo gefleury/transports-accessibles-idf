@@ -56,7 +56,8 @@ const selectedAccess = () => Object.keys(accessState).filter(k => accessState[k]
 
 // ── Filtering logic (mirrors apply_filters in the Streamlit app) ─────────────
 function lineMatchesAccess(line, access) {
-  if (access.length === 0) return true;
+  // Mirror the stops layer: no accessibility criteria selected → nothing matches.
+  if (access.length === 0) return false;
   const matchingStops = access.reduce((sum, k) => sum + line[ACCESS_COUNT_FIELD[k]], 0);
   return matchingStops >= MIN_MATCHING_STOPS;
 }
