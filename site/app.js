@@ -410,13 +410,24 @@ function accessBadge(status) {
 }
 
 // One row per line serving the stop, instead of showing only whichever
-// stacked feature happened to render on top.
+// stacked feature happened to render on top. At low zoom the cursor's hit
+// radius can also span distinct nearby stations (e.g. the funicular's
+// "Gare basse" and "Gare haute", ~1km apart but close on screen when
+// zoomed out) — group by stop_name so each gets its own header instead of
+// being merged under one.
 function stopPopupHtml(stopFeatures) {
   const lines = dedupeStopLines(stopFeatures);
-  const lineRows = lines
-    .map(p => `${p.mode}, Ligne ${p.route_long_name}<br>${accessBadge(p.ArRAccessibility)}`)
-    .join("<hr>");
-  return `<b>Arrêt « ${lines[0].stop_name} »</b><br>${lineRows}`;
+  const byStop = new Map();
+  for (const p of lines) {
+    if (!byStop.has(p.stop_name)) byStop.set(p.stop_name, []);
+    byStop.get(p.stop_name).push(p);
+  }
+  return Array.from(byStop, ([stopName, stopLines]) => {
+    const lineRows = stopLines
+      .map(p => `${p.mode}, Ligne ${p.route_long_name}<br>${accessBadge(p.ArRAccessibility)}`)
+      .join('<hr class="line-separator">');
+    return `<b>Arrêt « ${stopName} »</b><br>${lineRows}`;
+  }).join('<hr class="stop-separator">');
 }
 
 function linePopupHtml(lineFeature) {
