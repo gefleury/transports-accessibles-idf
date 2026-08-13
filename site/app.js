@@ -326,6 +326,9 @@ const LINES_LAYER = {
   type: "line",
   source: "transports",
   "source-layer": "lines",
+  // Nothing shown until applyFilters() runs — avoids a flash of every line
+  // while lines.json and the tile metadata are still loading.
+  filter: ["in", ["get", "route_id"], ["literal", []]],
   paint: {
     "line-color": ["match", ["get", "mode"],
       ...Object.entries(MODE_COLORS).flat(),
@@ -341,11 +344,15 @@ const STOPS_LAYER = {
   type: "circle",
   source: "transports",
   "source-layer": "stops",
+  // Nothing shown until applyFilters() runs — avoids a flash of every stop
+  // while lines.json and the tile metadata are still loading.
+  filter: ["in", ["get", "id"], ["literal", []]],
   // When a physical stop has both a confirmed-status line and an
   // unknown-status one stacked at the same point (both visible only if
   // "Inconnu" is checked), draw the confirmed one on top — otherwise which
   // color wins would be an arbitrary artifact of tile feature order.
   layout: {
+    visibility: "none",
     "circle-sort-key": ["match", ["get", "ArRAccessibility"], "unknown", 0, 1],
   },
   paint: {
