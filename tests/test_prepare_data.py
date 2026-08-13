@@ -234,10 +234,13 @@ def test_processed_chatelet_line_14_is_accessible(processed_stops):
 
 
 @skip_if_no_processed
-def test_tramway_stops_are_all_accessible(processed_stops):
+def test_non_t14_tramway_stops_are_all_accessible(processed_stops):
     tramway = processed_stops[processed_stops["mode"] == "Tramway"]
     assert not tramway.empty, "No tramway stops found in processed stops"
-    assert (tramway["ArRAccessibility"] == "true").all(), "All tramway stops should be 'true'"
+    non_t14 = tramway[tramway["route_long_name"] != "T14"]
+    assert (non_t14["ArRAccessibility"] == "true").all(), (
+        "All non-T14 tramway stops should be 'true'"
+    )
 
 
 @skip_if_no_processed

@@ -56,7 +56,8 @@ const selectedAccess = () => Object.keys(accessState).filter(k => accessState[k]
 
 // ── Filtering logic (mirrors apply_filters in the Streamlit app) ─────────────
 function lineMatchesAccess(line, access) {
-  if (access.length === 0) return true;
+  // Mirror the stops layer: no accessibility criteria selected → nothing matches.
+  if (access.length === 0) return false;
   const matchingStops = access.reduce((sum, k) => sum + line[ACCESS_COUNT_FIELD[k]], 0);
   return matchingStops >= MIN_MATCHING_STOPS;
 }
@@ -325,6 +326,9 @@ const LINES_LAYER = {
   type: "line",
   source: "transports",
   "source-layer": "lines",
+  // Nothing shown until applyFilters() runs — avoids a flash of every line
+  // while lines.json and the tile metadata are still loading.
+  filter: ["in", ["get", "route_id"], ["literal", []]],
   paint: {
     "line-color": ["match", ["get", "mode"],
       ...Object.entries(MODE_COLORS).flat(),
@@ -340,11 +344,15 @@ const STOPS_LAYER = {
   type: "circle",
   source: "transports",
   "source-layer": "stops",
+  // Nothing shown until applyFilters() runs — avoids a flash of every stop
+  // while lines.json and the tile metadata are still loading.
+  filter: ["in", ["get", "id"], ["literal", []]],
   // When a physical stop has both a confirmed-status line and an
   // unknown-status one stacked at the same point (both visible only if
   // "Inconnu" is checked), draw the confirmed one on top — otherwise which
   // color wins would be an arbitrary artifact of tile feature order.
   layout: {
+    visibility: "none",
     "circle-sort-key": ["match", ["get", "ArRAccessibility"], "unknown", 0, 1],
   },
   paint: {
@@ -388,15 +396,16 @@ map.on("zoomend", updateStats);
 const hoverPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
 
 // Several lines can share a physical stop, stacked at the same point on the
-// map (e.g. Persan - Beaumont: TER + Transilien H). Keep one entry per
-// (stop_id, route_long_name) — MapLibre can also report the same feature
-// twice across a tile boundary, which this same dedup absorbs.
+// map (e.g. Persan - Beaumont: TER + Transilien H) — keep one entry per
+// (mode, route_long_name, stop_name). This also absorbs the same feature
+// reported twice across a tile boundary, and a single line's two separate
+// direction platforms (different stop_id, same station) at low zoom.
 function dedupeStopLines(stopFeatures) {
   const seen = new Set();
   const lines = [];
   for (const f of stopFeatures) {
     const p = f.properties;
-    const key = `${p.stop_id}|${p.route_long_name}`;
+    const key = `${p.mode}|${p.route_long_name}|${p.stop_name}`;
     if (seen.has(key)) continue;
     seen.add(key);
     lines.push(p);
@@ -409,13 +418,24 @@ function accessBadge(status) {
 }
 
 // One row per line serving the stop, instead of showing only whichever
-// stacked feature happened to render on top.
+// stacked feature happened to render on top. At low zoom the cursor's hit
+// radius can also span distinct nearby stations (e.g. the funicular's
+// "Gare basse" and "Gare haute", ~1km apart but close on screen when
+// zoomed out) — group by stop_name so each gets its own header instead of
+// being merged under one.
 function stopPopupHtml(stopFeatures) {
   const lines = dedupeStopLines(stopFeatures);
-  const lineRows = lines
-    .map(p => `${p.mode}, Ligne ${p.route_long_name}<br>${accessBadge(p.ArRAccessibility)}`)
-    .join("<hr>");
-  return `<b>Arrêt « ${lines[0].stop_name} »</b><br>${lineRows}`;
+  const byStop = new Map();
+  for (const p of lines) {
+    if (!byStop.has(p.stop_name)) byStop.set(p.stop_name, []);
+    byStop.get(p.stop_name).push(p);
+  }
+  return Array.from(byStop, ([stopName, stopLines]) => {
+    const lineRows = stopLines
+      .map(p => `${p.mode}, Ligne ${p.route_long_name}<br>${accessBadge(p.ArRAccessibility)}`)
+      .join('<hr class="line-separator">');
+    return `<b>Arrêt « ${stopName} »</b><br>${lineRows}`;
+  }).join('<hr class="stop-separator">');
 }
 
 function linePopupHtml(lineFeature) {

@@ -218,3 +218,20 @@ summary {
 .sources a {
   color: #2471a3;
 }
+
+/* ── Stop popup ─────────────────────────────────────────────────────────── */
+
+/* Separates lines within the same stop — kept subtle so it doesn't compete
+   with the heavier stop-separator below. */
+.maplibregl-popup-content hr.line-separator {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 4px 0;
+}
+
+/* Separates distinct stops merged into one popup at low zoom. */
+.maplibregl-popup-content hr.stop-separator {
+  border: none;
+  border-top: 2px solid #333;
+  margin: 8px 0;
+}
