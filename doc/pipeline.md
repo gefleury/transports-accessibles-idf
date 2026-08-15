@@ -26,10 +26,12 @@ flowchart TD
     Trigger["Déclencheur\ncron hebdo · push sur main · manuel"] --> Build
     subgraph Build["Job build"]
         direction TB
-        B1[download_data.py] --> B2[prepare_data.py] --> B3["tests du pipeline\nde données (pytest)"] --> B4[build_tiles.py] --> B5["test d'initialisation\ndu navigateur (pytest)"]
+        B1[download_data.py] --> B2[prepare_data.py] --> B3["tests du pipeline\nde données (pytest)"] --> B4[build_site.py] --> B5[build_tiles.py] --> B6["test d'initialisation\ndu navigateur (pytest)"]
     end
     Build -->|succès| Deploy[Déploiement GitHub Pages]
     Build -->|échec| Stop["Rien ne se passe\nle site précédent reste en ligne"]
 ```
+
+`build_site.py` (assemblage des pages HTML depuis `site/_pages/` + `site/_partials/`) n'a aucune dépendance sur les données ; il est placé juste avant `build_tiles.py`, avec lequel il forme l'étape d'assemblage de `site/` — le test d'initialisation du navigateur qui suit vérifie les deux d'un coup.
 
 Le fichier `.github/workflows/build-deploy.yml` exécute cette chaîne chaque lundi à 3h UTC, à chaque `push` sur `main`, et sur déclenchement manuel. Chaque exécution part d'une machine vierge : aucune donnée ne persiste d'une exécution à l'autre, et le site en ligne n'est modifié qu'à la toute dernière étape — jamais avant que tout ait réussi. Un échec à n'importe quelle étape (par exemple si l'API change de format et que `pytest` le détecte) arrête tout sans conséquence : le site continue de servir la version précédente, et les fichiers de données de l'exécution ratée sont conservés 14 jours en pièce jointe du run GitHub Actions, pour pouvoir être inspectés.

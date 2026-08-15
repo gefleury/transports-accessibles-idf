@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Accessibilité PMR des transports en Île-de-France</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♿</text></svg>" />
+<meta name="description" content="Carte interactive de l'accessibilité en fauteuil roulant des transports en commun d'Île-de-France : métro, RER, tramway, bus, Transilien. Données open data Île-de-France Mobilités." />
+<meta property="og:title" content="Accessibilité PMR des transports en Île-de-France" />
+<meta property="og:description" content="Carte interactive de l'accessibilité en fauteuil roulant des transports en commun d'Île-de-France." />
+<meta property="og:type" content="website" />
+<meta property="og:locale" content="fr_FR" />
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<link href="style.css" rel="stylesheet" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@3/dist/pmtiles.js"></script>
+</head>
+<body>
+<div id="page">
+<!--HEADER_HOME-->
+  <div id="app">
+    <div id="sidebar">
+      <h2>Accessibilité des arrêts</h2>
+      <div class="hint">ℹ️ Pour une personne en fauteuil roulant.
+        Accessible = en toute autonomie, Partiellement accessible = avec l'aide
+        d'un tiers et/ou réservation préalable.</div>
+      <div id="access"></div>
+
+      <h2>Lignes</h2>
+      <div id="lines-hint" class="hint"></div>
+      <div id="modes"></div>
+    </div>
+    <div id="main">
+      <div id="meta">
+        <span id="stats"></span>
+        <span id="updated"></span>
+      </div>
+      <div id="map-wrap">
+        <div id="map"></div>
+      </div>
+    </div>
+  </div>
+<!--FOOTER-->
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
