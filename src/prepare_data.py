@@ -263,7 +263,9 @@ def prepare_accessibility_cableway(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
 
 def prepare_accessibility_funicular(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
     """FUNICULAIRE is fully accessible."""
-    return prepare_accessibility_fixed_line(gdf_stops, "Funicular", {"FUNICULAIRE": "true"})
+    return prepare_accessibility_fixed_line(
+        gdf_stops, "Funicular", {"FUNICULAIRE": "true"}
+    )
 
 
 def join_stops_to_lines(
@@ -300,8 +302,11 @@ def join_accessibility(
 
     Accepts any number of accessibility DataFrames (each with stop_id,
     route_long_name, and ArRAccessibility columns). They are concatenated in
-    order, with later tables taking precedence over earlier ones for duplicate
-    (stop_id, route_long_name) pairs.
+    call order and deduplicated on (stop_id, route_long_name) with keep="last",
+    so if two tables ever produced the same key, the one passed later would
+    win. In practice each caller-supplied table is drawn from a disjoint set
+    of modes, so no key collision happens today and nothing is dropped here -
+    this is a safety net, not an active conflict-resolution path.
     Stops with no match get "unknown" in ArRAccessibility.
     """
     combined = pd.concat(accessibility_dfs, ignore_index=True)
@@ -368,8 +373,12 @@ def main():
     lines = prepare_lines(gdf_lines, gdf_stops)
     stops = prepare_stops(gdf_stops)
     stops = join_stops_to_lines(lines, stops)
-    # Precedence: bus < tramway < metro < train < airport shuttle < cableway < funicular
-    # (last wins on duplicate stop_id)
+    # These 7 accessibility tables each cover a disjoint mode (accessibility_bus only mode
+    # == "Bus", accessibility_train only LocalTrain/RapidTransit/regionalRail,
+    # etc.), and no (stop_id, route_long_name) pair spans two modes, so none
+    # of them share a key today - see join_accessibility's docstring. The
+    # precedence order below only matters as a safety net if that changes:
+    # bus < tramway < metro < train < airport shuttle < cableway < funicular.
     stops = join_accessibility(
         stops,
         accessibility_bus,
