@@ -19,17 +19,28 @@
 <div id="page">
 <!--HEADER_HOME-->
   <div id="app">
-    <div id="sidebar">
-      <h2>Accessibilité des arrêts</h2>
-      <div class="hint">ℹ️ Pour une personne en fauteuil roulant.
-        Accessible = en toute autonomie, Partiellement accessible = avec l'aide
-        d'un tiers et/ou réservation préalable.</div>
-      <div id="access"></div>
+    <details id="sidebar" open>
+      <summary>
+        <span class="sidebar-toggle-label">Filtres</span>
+        <span class="sidebar-toggle-action-group">
+          <span class="sidebar-toggle-action">Masquer</span>
+          <svg class="sidebar-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3 4l4 4-4 4M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+      </summary>
+      <div id="sidebar-content">
+        <h2>Accessibilité des arrêts</h2>
+        <div class="hint">ℹ️ Pour une personne en fauteuil roulant.
+          Accessible = en toute autonomie, Partiellement accessible = avec l'aide
+          d'un tiers et/ou réservation préalable.</div>
+        <div id="access"></div>
 
-      <h2>Lignes</h2>
-      <div id="lines-hint" class="hint"></div>
-      <div id="modes"></div>
-    </div>
+        <h2>Lignes</h2>
+        <div id="lines-hint" class="hint"></div>
+        <div id="modes"></div>
+      </div>
+    </details>
     <div id="main">
       <div id="meta">
         <span id="stats"></span>

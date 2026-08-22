@@ -24,59 +24,97 @@ body {
 }
 
 #banner {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-  background: #fff;
-  padding: 20px 16px;
-  border-bottom: 1px solid #ddd;
+  background: #e6effb; /* sky color sampled from banner_v2.png; previously #88cafc */
+  color: #0f3d6b;
+  padding: 15px 28px;
 }
 
 #brand-link {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 22px;
   color: inherit;
   text-decoration: none;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
-.banner-image-wrap {
+.banner-badge {
   display: flex;
-  justify-content: flex-end;
-  width: 320px;
-  margin-left: -16px;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 61, 107, 0.2);
   flex: none;
+  overflow: hidden;
 }
 
-.banner-image {
+.banner-logo {
   display: block;
-  width: 100%;
-  max-width: 320px;
-  height: auto;
+  width: 78%;
+  height: 78%;
+  object-fit: contain;
 }
 
 #banner h1 {
-  font-size: 20px;
+  font-size: 21px;
   margin: 0;
+  min-width: 0;
+}
+
+#nav-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
 }
 
 #nav {
+  position: relative;
+  flex: none;
+}
+
+/* "Accueil" link shown in the banner on non-home pages (see
+   home-link.html) — text + separator on desktop, an icon-only link on
+   mobile (see the max-width: 1024px query), never both. */
+.home-link-text,
+.home-link-separator {
+  font-size: 14px;
+}
+
+.home-link-text {
   display: flex;
   align-items: center;
-  gap: 16px;
-  flex: none;
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: #0f3d6b;
+  text-decoration: none;
 }
 
-#github-link {
-  flex: none;
-  display: flex;
-  color: #555;
+/* Same hover treatment as the "À propos" trigger (.nav-toggle), for
+   visual consistency between the two banner links. */
+.home-link-text:hover {
+  background: rgba(15, 61, 107, 0.08);
 }
 
-#github-link:hover {
-  color: #000;
+.home-link-separator {
+  color: #ccc;
+  user-select: none;
+}
+
+.home-link-icon {
+  display: none;
+  color: #0f3d6b;
+  border-radius: 8px;
 }
 
 #app {
@@ -89,15 +127,45 @@ body {
   width: 320px;
   flex: none;
   overflow-y: auto;
-  padding: 16px;
   background: #fafafa;
-  border-right: 1px solid #ddd;
+  border: 1px solid #ddd;
+  padding: 6px 10px;
   box-sizing: border-box;
   font-size: 13px;
+}
+/* Hide/show toggle for the filter sidebar — shared behavior between the
+   desktop (slim vertical tab) and mobile (full-width bar) treatments,
+   each styled in their own media query below. display:flex here (not
+   scoped to either breakpoint) is safe because the two breakpoints
+   together cover every viewport width, each setting it anyway. */
+#sidebar > summary {
+  display: flex;
+  list-style: none;
+}
+
+#sidebar > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The literal "Masquer" text in the markup is never shown as-is: hidden
+   outright on desktop (chevron-only), and hidden in favor of mobile's
+   own generated "Afficher"/"Masquer" ::after text instead. */
+.sidebar-toggle-action {
+  display: none;
+}
+
+.sidebar-chevron {
+  color: #555;
+}
+
+#sidebar-content {
+  padding: 0 8px 8px;
+  box-sizing: border-box;
 }
 
 #main {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -107,7 +175,7 @@ body {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 4px 16px;
+  padding: 20px 16px 4px;
   background: #fff;
   color: #555;
   font-size: 12px;
@@ -123,7 +191,7 @@ body {
 #map-wrap {
   flex: 1;
   display: flex;
-  padding: 4px 16px 16px;
+  padding: 4px 16px 8px;
   background: #fff;
   box-sizing: border-box;
 }
@@ -167,12 +235,34 @@ label {
   flex: none;
 }
 
-details {
+#modes details {
   margin: 6px 0;
   background: #fff;
   border: 1px solid #ddd;
   border-radius: 6px;
   padding: 6px 10px;
+}
+
+#modes details > summary {
+  justify-content: flex-start;
+}
+
+#modes details > summary .bar {
+  margin-left: auto;
+}
+
+#modes details > summary::-webkit-details-marker {
+  display: none;
+}
+
+#modes details > summary::after {
+  content: "▾";
+  color: #333;
+  font-size: 16px;
+}
+
+#modes details[open] > summary::after {
+  content: "▴";
 }
 
 summary {
@@ -246,95 +336,136 @@ summary {
   display: block;
 }
 
-/* ── Nav ("Accueil" / "À propos" dropdown) ─────────────────────────────── */
+/* ── Nav (banner "À propos" menu) ──────────────────────────────────────── */
+/* Native <details>/<summary> disclosure — no JS: the browser handles the
+   open/close toggle and outside-click-to-close for free. The tradeoff is
+   that the panel is anchored under the trigger's own box rather than
+   being free to span the full banner width, so it's a compact corner
+   popup on both desktop and mobile (just an icon-only trigger on mobile,
+   swapped via the [open] attribute). */
 
-.nav-link {
-  font-size: 14px;
-  color: #333;
-  text-decoration: none;
-  padding: 4px 0;
-}
-
-.nav-link:hover {
-  color: #000;
-}
-
-.nav-dropdown {
-  position: relative;
-  margin: 0;
-  padding: 0;
-  border: none;
-}
-
-.nav-dropdown summary {
-  display: inline-flex;
-  justify-content: flex-start;
-  gap: 0;
+#nav > summary {
   list-style: none;
-  font-weight: 400;
-  font-size: 14px;
-  color: #333;
-  padding: 4px 0;
-  outline: none;
 }
 
-.nav-dropdown summary::after {
-  content: "";
-  display: inline-block;
-  margin-left: 6px;
-  vertical-align: middle;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid #333;
-}
-
-.nav-dropdown summary::-webkit-details-marker {
+#nav > summary::-webkit-details-marker {
   display: none;
 }
 
-.nav-dropdown[open] summary {
-  color: #000;
+.nav-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: #0f3d6b;
+  cursor: pointer;
+  outline: none;
 }
 
-.nav-dropdown ul {
+.nav-toggle:hover,
+#nav[open] .nav-toggle {
+  background: rgba(15, 61, 107, 0.08);
+}
+
+.nav-chevron {
+  transition: transform 0.15s ease;
+}
+
+#nav[open] .nav-chevron {
+  transform: rotate(180deg);
+}
+
+.nav-icon-menu,
+.nav-icon-close {
+  display: none;
+}
+
+.nav-panel {
+  display: none;
   position: absolute;
   top: 100%;
   right: 0;
+  margin-top: 8px;
   z-index: 10;
-  margin: 4px 0 0;
-  padding: 4px 0;
-  list-style: none;
-  min-width: 140px;
+  min-width: 190px;
+  flex-direction: column;
+  padding: 8px;
   background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(15, 61, 107, 0.22);
 }
 
-.nav-separator {
-  color: #ccc;
-  user-select: none;
+#nav[open] .nav-panel {
+  display: flex;
 }
 
-.nav-dropdown li a {
+.nav-panel-item {
   display: block;
-  padding: 6px 12px;
-  color: #333;
-  text-decoration: none;
+  padding: 10px 12px;
+  border-radius: 6px;
   font-size: 14px;
+  color: #0f3d6b;
+  text-decoration: none;
 }
 
-.nav-dropdown li a:hover {
-  background: #f0f0f0;
+.nav-panel-item:hover {
+  background: #f0f4f9;
+}
+
+.nav-panel-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #7a8ba1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 10px 12px 2px;
 }
 
 /* ── Footer ─────────────────────────────────────────────────────────────── */
 
 #footer {
+  position: relative;
   flex: none;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
   font-size: 11px;
   color: #666;
   padding: 8px 16px;
-  border-top: 1px solid #ddd;
   background: #fff;
+}
+
+/* A plain border-top would span the footer's full width — this pseudo
+   inset to the same 16px as the padding instead, so it lines up with the
+   footer text's own left/right edges rather than reaching the page's. */
+#footer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 16px;
+  border-top: 1px solid #ddd;
+}
+
+#footer #github-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  color: #555;
+  text-decoration: none;
+}
+
+#footer #github-link:hover {
+  color: #000;
 }
 
 #footer a {
@@ -353,6 +484,277 @@ summary {
 
 #content h2 {
   margin-top: 0;
+}
+
+/* ── Desktop/tablet: #page's base column flex (banner | #app | footer)
+   already puts banner and footer full-width, with #app's default row
+   flex placing #sidebar beside #main in between — so pages with no
+   #sidebar (Données / Mission) need no special-casing at all. ───────── */
+
+@media (min-width: 1025px) {
+  /* Gap below the banner, flush with the page's left edge — rounded only
+     on the right corners, facing the map. Bottom margin matches
+     #map-wrap's own bottom padding so the two boxes end at the same y.
+     No left border since that edge is flush with the page edge.
+     position:relative anchors #sidebar-content's absolute positioning
+     below. */
+  #sidebar {
+    position: relative;
+    overflow: hidden;
+    margin: 12px 0 8px;
+    border-radius: 0 8px 8px 0;
+    border-left: none;
+    transition: width 0.15s ease;
+  }
+
+  /* Hide/show toggle, same native <details>/<summary> mechanism as the
+     mobile layout — just a slim vertical tab instead of a full-width bar,
+     since the sidebar sits beside the map rather than stacked above it.
+     Collapsing it narrows #sidebar itself (rather than only hiding its
+     content, as <details> would do on its own) so the map can reclaim
+     the freed width. No text label on the action itself (unlike mobile's
+     "Afficher"/"Masquer") — just the chevron.
+
+     <details> turns out not to expose a usable "definite height" to any
+     in-flow child sizing mechanism — flex:1 on the content, a
+     position:sticky summary, and a percentage/calc() max-height on the
+     content all independently failed the same way (content grows
+     unbounded, or leaks outside the box during scroll), confirmed with
+     isolated repros swapping <details> for a plain <div> with identical
+     CSS, which worked every time. Absolute positioning turns out to use
+     a different resolution path that <details> handles correctly, so
+     #sidebar-content below is positioned absolutely instead of sized via
+     flex or percentage. */
+  #sidebar > summary {
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 2px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #333;
+    border-bottom: 1px solid #ddd;
+  }
+
+  /* 37px = the summary row's own rendered height (31px) + the gap before
+     the content that follows it (6px). bottom:8px (not 0) matches the
+     mobile layout's own #sidebar-content padding-bottom: absolutely
+     positioned children measure top/bottom against the containing
+     block's padding edge, which ignores #sidebar's own padding, so
+     without this the content's own padding-bottom left no visible gap
+     before the border. */
+  #sidebar-content {
+    position: absolute;
+    top: 37px;
+    left: 0;
+    right: 0;
+    bottom: 8px;
+    overflow-y: auto;
+  }
+
+  /* Double chevron, right-pointing by default ("expand this way"); rotated
+     to point left ("collapse this way") once open — same rotate-on-open
+     convention as the banner's nav-chevron. The transition isn't shared
+     with mobile's own chevron rule: mobile snaps instantly, unanimated. */
+  .sidebar-chevron {
+    transition: transform 0.15s ease;
+  }
+
+  #sidebar[open] > summary .sidebar-chevron {
+    transform: rotate(180deg);
+  }
+
+  #sidebar:not([open]) {
+    width: 44px;
+    padding: 6px 4px;
+    overflow: hidden;
+  }
+
+  #sidebar:not([open]) > summary {
+    justify-content: center;
+    padding: 4px 0 8px;
+  }
+
+  #sidebar:not([open]) .sidebar-toggle-label {
+    display: none;
+  }
+}
+
+/* ── Mobile ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  #content {
+    margin: 0;
+    padding: 16px 16px 40px;
+  }
+
+  #banner {
+    padding: 10px 10px 10px 16px;
+    gap: 8px;
+  }
+
+  #brand-link {
+    gap: 14px;
+  }
+
+  #nav-group {
+    gap: 2px;
+  }
+
+  .banner-badge {
+    width: 46px;
+    height: 46px;
+  }
+
+  #banner h1 {
+    font-size: 15px;
+  }
+
+  /* Icon-only hamburger/close trigger instead of the "À propos" text +
+     chevron used on desktop — there's no room for a text label next to
+     the title on a phone, and a 44px icon button is a proper tap target.
+     The panel itself stays a corner popup anchored under this button,
+     same as desktop. */
+  .nav-toggle-label,
+  .nav-chevron {
+    display: none;
+  }
+
+  .nav-toggle {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 8px;
+  }
+
+  .nav-icon-menu {
+    display: block;
+  }
+
+  #nav[open] .nav-icon-menu {
+    display: none;
+  }
+
+  #nav[open] .nav-icon-close {
+    display: block;
+  }
+
+  /* Icon-only home link instead of desktop's "Accueil | " text — no room
+     for a text label next to the title on a phone, same reasoning as the
+     nav trigger above. */
+  .home-link-text,
+  .home-link-separator {
+    display: none;
+  }
+
+  .home-link-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+  }
+
+  .home-link-icon:hover {
+    background: rgba(15, 61, 107, 0.08);
+  }
+
+  .nav-panel-item {
+    padding: 12px 6px;
+    font-size: 15px;
+  }
+
+  #app {
+    flex-direction: column;
+  }
+
+  #sidebar {
+    width: auto;
+    margin: 14px 12px 0;
+    border-radius: 6px;
+  }
+
+  #sidebar > summary {
+    padding: 6px 4px 6px 4px;
+    font-size: 14px;
+  }
+
+  /* Reuses the desktop toggle's chevron icon (shown here instead of
+     hidden) for visual consistency, but keeps mobile's own pre-existing
+     ::after text instead of the desktop's hidden .sidebar-toggle-action
+     span — the text is generated on .sidebar-toggle-action-group so it
+     groups with the icon under the same space-between half as before,
+     and order:-1 keeps it reading before the icon despite being a ::after.
+     display:flex here (the shared CSS never sets it — desktop only ever
+     shows the single chevron child, no ordering needed there) is what
+     makes that order:-1 actually take effect. */
+  .sidebar-toggle-action-group {
+    display: flex;
+    align-items: center;
+  }
+
+  .sidebar-toggle-action-group::after {
+    content: "Afficher";
+    order: -1;
+    margin-right: 4px;
+    font-weight: 400;
+    font-size: 13px;
+    color: #555;
+  }
+
+  #sidebar[open] .sidebar-toggle-action-group::after {
+    content: "Masquer";
+  }
+
+  /* Right-pointing by default in the shared CSS (desktop's convention);
+     rotated here to point down (collapsed) / up (open) instead, matching
+     the vertical direction this panel actually expands in. */
+  .sidebar-chevron {
+    transform: rotate(90deg);
+  }
+
+  #sidebar[open] > summary .sidebar-chevron {
+    transform: rotate(-90deg);
+  }
+
+  #sidebar[open] > summary {
+    border-bottom: 1px solid #ddd;
+  }
+
+  #sidebar-content {
+    max-height: calc(45vh - 42px);
+    overflow-y: auto;
+  }
+}
+
+/* Tablets in landscape (e.g. iPad, Galaxy Tab): wide enough for the
+   side-by-side desktop layout, but a 320px sidebar leaves too little
+   room for the map. */
+@media (min-width: 1025px) and (max-width: 1400px) {
+  #sidebar {
+    width: 260px;
+  }
+
+  #banner {
+    padding: 12px 20px;
+    gap: 8px;
+  }
+
+  #banner h1 {
+    font-size: 18px;
+  }
+}
+
+/* Very narrow phones: shrink the badge and title a second notch. */
+@media (max-width: 700px) {
+  .banner-badge {
+    width: 40px;
+    height: 40px;
+  }
+
+  #banner h1 {
+    font-size: 14px;
+  }
 }
 
 /* ── Stop popup ─────────────────────────────────────────────────────────── */

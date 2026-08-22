@@ -42,6 +42,24 @@ document.getElementById("lines-hint").textContent =
 const MODE_DEFAULT_ON = new Set(["Métro", "RER", "Tramway"]);
 const SEARCH_THRESHOLD = 12;  // add a search box above lists longer than this
 
+// The sidebar starts open in the HTML (so desktop needs no JS at all);
+// collapse it on narrow screens so the map isn't pushed below the fold.
+// Keep it in sync on live resizes too (not just at load), in both
+// directions — e.g. rotating a tablet from portrait to landscape should
+// re-open it, and the reverse should re-collapse it, regardless of
+// whatever collapsed/expanded state it happened to be left in (desktop
+// also has its own hide/show toggle now, but defaulting to open there
+// avoids landing on a collapsed sidebar just by coincidence of whatever
+// state the narrower layout left it in).
+const sidebarMobileQuery = window.matchMedia("(max-width: 1024px)");
+function syncSidebarOpenToWidth(isMobile) {
+  const sidebar = document.getElementById("sidebar");
+  if (isMobile) sidebar.removeAttribute("open");
+  else sidebar.setAttribute("open", "");
+}
+syncSidebarOpenToWidth(sidebarMobileQuery.matches);
+sidebarMobileQuery.addEventListener("change", e => syncSidebarOpenToWidth(e.matches));
+
 const collator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -321,6 +339,12 @@ const map = new maplibregl.Map({
 // showCompass: false keeps it to just zoom, no rotation control.
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
 
+// MapLibre's compact attribution control starts open when the attached text
+// is short enough to fit — collapse it to just the toggle icon. Done here
+// rather than on "load" (which fires after the style/tiles finish loading)
+// to avoid a flash of the expanded control on every page load.
+document.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
+
 const LINES_LAYER = {
   id: "lines",
   type: "line",
@@ -367,6 +391,7 @@ const STOPS_LAYER = {
 };
 
 map.on("load", async () => {
+
   map.addSource("transports", { type: "vector", url: "pmtiles://" + TILES_URL });
   // Insert beneath the basemap's first label layer so place names stay
   // readable on top of the transport lines and stops.
@@ -443,8 +468,8 @@ function linePopupHtml(lineFeature) {
   return `<b>Ligne ${p.route_long_name}</b><br>${p.mode} (${p.operatorname})`;
 }
 
-map.on("mousemove", e => {
-  const features = map.queryRenderedFeatures(e.point, { layers: ["stops", "lines"] });
+function updateHoverPopup(point, lngLat) {
+  const features = map.queryRenderedFeatures(point, { layers: ["stops", "lines"] });
   if (!features.length) {
     hoverPopup.remove();
     map.getCanvas().style.cursor = "";
@@ -454,9 +479,16 @@ map.on("mousemove", e => {
 
   const stopFeatures = features.filter(f => f.layer.id === "stops");
   const html = stopFeatures.length ? stopPopupHtml(stopFeatures) : linePopupHtml(features[0]);
-  hoverPopup.setLngLat(e.lngLat).setHTML(html).addTo(map);
-});
+  hoverPopup.setLngLat(lngLat).setHTML(html).addTo(map);
+}
+
+map.on("mousemove", e => updateHoverPopup(e.point, e.lngLat));
 map.on("mouseout", () => {
   hoverPopup.remove();
   map.getCanvas().style.cursor = "";
 });
+// Touch devices have no hover equivalent: a tap never fires mousemove, so
+// popups would otherwise never appear on mobile. Tapping a feature shows
+// its popup directly; tapping elsewhere closes it, standing in for the
+// mouseout that touch also never fires.
+map.on("click", e => updateHoverPopup(e.point, e.lngLat));

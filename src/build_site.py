@@ -21,9 +21,9 @@ OUT_DIR = Path("site")
 
 def build_site():
     footer = (PARTIALS_DIR / "footer.html").read_text()
-    accueil = (PARTIALS_DIR / "accueil-link.html").read_text()
+    home_link = (PARTIALS_DIR / "home-link.html").read_text()
     header_template = (PARTIALS_DIR / "header.html").read_text()
-    header = header_template.replace("<!--ACCUEIL-->", accueil)
+    header = header_template.replace("<!--ACCUEIL-->", home_link)
     header_home = header_template.replace("<!--ACCUEIL-->", "")
 
     for page in PAGES_DIR.glob("*.html"):
