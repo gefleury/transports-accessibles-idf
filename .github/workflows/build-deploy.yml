@@ -88,6 +88,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      - name: Build site pages
+        run: python src/build_site.py
+
       - name: Build tiles
         run: python src/build_tiles.py
 
