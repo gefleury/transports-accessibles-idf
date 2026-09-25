@@ -89,12 +89,15 @@ def prepare_stops(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 def prepare_accessibility_bus(
     df: pd.DataFrame, gdf_stops: gpd.GeoDataFrame
 ) -> pd.DataFrame:
-    """Clean the bus stop accessibility file (sdap-arrets-associes.csv).
+    """Assign wheelchair accessibility to bus stops.
 
-    Joins with gdf_stops on (stop_id, route_id) to get route_long_name —
-    the API no longer provides route_long_name directly (column was renamed
-    to arraccessibility / route_id vs the old ArRAccessibility / route_long_name).
-    Returns one row per (stop_id, route_long_name) pair with ArRAccessibility.
+    Inner-joins with gdf_stops on (stop_id, route_id) to keep only pairs
+    that match a real current stop-route combination, and to fetch
+    route_long_name for display/logic elsewhere. route_id, not
+    route_long_name, is what join_accessibility matches on: it's the
+    stable identifier, whereas route_long_name is a human-readable string
+    IDFM can (and has) silently reworded.
+    Returns one row per (stop_id, route_id) pair with ArRAccessibility.
     """
     bus_stop_lines = gdf_stops[gdf_stops["mode"] == "Bus"][
         ["stop_id", "id", "route_long_name"]
@@ -109,8 +112,8 @@ def prepare_accessibility_bus(
             left_on=["stop_id", "route_id"],
             right_on=["stop_id", "id"],
             how="inner",
-        )[["stop_id", "route_long_name", "ArRAccessibility"]]
-        .drop_duplicates(subset=["stop_id", "route_long_name"])
+        )[["stop_id", "route_id", "route_long_name", "ArRAccessibility"]]
+        .drop_duplicates(subset=["stop_id", "route_id"])
         .reset_index(drop=True)
     )
 
@@ -139,11 +142,12 @@ def prepare_accessibility_tramway(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
 
     return (
         gdf_stops[gdf_stops["mode"] == "Tramway"][
-            ["stop_id", "route_long_name", "stop_name"]
+            ["stop_id", "route_long_name", "stop_name", "id"]
         ]
         .drop_duplicates(subset=["stop_id", "route_long_name"])
-        .assign(ArRAccessibility=lambda df: df.apply(get_status, axis=1))[
-            ["stop_id", "route_long_name", "ArRAccessibility"]
+        .assign(ArRAccessibility=lambda df: df.apply(get_status, axis=1))
+        .rename(columns={"id": "route_id"})[
+            ["stop_id", "route_id", "route_long_name", "ArRAccessibility"]
         ]
         .reset_index(drop=True)
     )
@@ -185,11 +189,12 @@ def prepare_accessibility_metro(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
 
     out = (
         gdf_stops[gdf_stops["mode"] == "Metro"][
-            ["stop_id", "route_long_name", "stop_name"]
+            ["stop_id", "route_long_name", "stop_name", "id"]
         ]
         .drop_duplicates(subset=["stop_id", "route_long_name"])
-        .assign(ArRAccessibility=lambda df: df.apply(get_status, axis=1))[
-            ["stop_id", "route_long_name", "ArRAccessibility"]
+        .assign(ArRAccessibility=lambda df: df.apply(get_status, axis=1))
+        .rename(columns={"id": "route_id"})[
+            ["stop_id", "route_id", "route_long_name", "ArRAccessibility"]
         ]
         .reset_index(drop=True)
     )
@@ -199,7 +204,7 @@ def prepare_accessibility_metro(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
 def prepare_accessibility_train(
     df: pd.DataFrame, gdf_stops: gpd.GeoDataFrame
 ) -> pd.DataFrame:
-    """Clean the train/RER station accessibility file.
+    """Assign wheelchair accessibility to train/RER stations.
 
     - Strips the "stop_point:" prefix from stop_point_id and renames it stop_id.
     - Maps accessibility_level_id to the shared vocabulary:
@@ -218,9 +223,13 @@ def prepare_accessibility_train(
     )
     accessibility = accessibility[["stop_id", "ArRAccessibility"]]
 
-    train_stop_lines = gdf_stops[gdf_stops["mode"].isin(train_modes)][
-        ["stop_id", "route_long_name"]
-    ].drop_duplicates()
+    train_stop_lines = (
+        gdf_stops[gdf_stops["mode"].isin(train_modes)][
+            ["stop_id", "route_long_name", "id"]
+        ]
+        .drop_duplicates()
+        .rename(columns={"id": "route_id"})
+    )
     return (
         train_stop_lines.merge(accessibility, on="stop_id", how="left")
         .fillna({"ArRAccessibility": "unknown"})
@@ -242,9 +251,10 @@ def prepare_accessibility_fixed_line(
         return line_status[row["route_long_name"]]
 
     return (
-        gdf_stops[gdf_stops["mode"] == mode][["stop_id", "route_long_name"]]
+        gdf_stops[gdf_stops["mode"] == mode][["stop_id", "route_long_name", "id"]]
         .drop_duplicates()
         .assign(ArRAccessibility=lambda df: df.apply(get_status, axis=1))
+        .rename(columns={"id": "route_id"})
         .reset_index(drop=True)
     )
 
@@ -263,7 +273,9 @@ def prepare_accessibility_cableway(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
 
 def prepare_accessibility_funicular(gdf_stops: gpd.GeoDataFrame) -> pd.DataFrame:
     """FUNICULAIRE is fully accessible."""
-    return prepare_accessibility_fixed_line(gdf_stops, "Funicular", {"FUNICULAIRE": "true"})
+    return prepare_accessibility_fixed_line(
+        gdf_stops, "Funicular", {"FUNICULAIRE": "true"}
+    )
 
 
 def join_stops_to_lines(
@@ -296,19 +308,31 @@ def join_accessibility(
     stops: gpd.GeoDataFrame,
     *accessibility_dfs: pd.DataFrame,
 ) -> gpd.GeoDataFrame:
-    """Left-join accessibility status onto stops by (stop_id, route_long_name).
+    """Left-join accessibility status onto stops by (stop_id, route_id).
+
+    route_id, not route_long_name, is the join key: it's IDFM's stable
+    per-route identifier, whereas route_long_name is a human-readable string
+    that can be (and has been) silently reworded upstream, which previously
+    made stops fall back to "unknown" once the wording drifted out of sync
+    between the stops and accessibility source files.
 
     Accepts any number of accessibility DataFrames (each with stop_id,
     route_long_name, and ArRAccessibility columns). They are concatenated in
-    order, with later tables taking precedence over earlier ones for duplicate
-    (stop_id, route_long_name) pairs.
+    call order and deduplicated on (stop_id, route_long_name) with keep="last",
+    so if two tables ever produced the same key, the one passed later would
+    win. In practice each caller-supplied table is drawn from a disjoint set
+    of modes, so no key collision happens today and nothing is dropped here -
+    this is a safety net, not an active conflict-resolution path.
     Stops with no match get "unknown" in ArRAccessibility.
     """
     combined = pd.concat(accessibility_dfs, ignore_index=True)
-    combined = combined.drop_duplicates(
-        subset=["stop_id", "route_long_name"], keep="last"
-    )
-    enriched = stops.merge(combined, on=["stop_id", "route_long_name"], how="left")
+    combined = combined.drop_duplicates(subset=["stop_id", "route_id"], keep="last")
+    enriched = stops.merge(
+        combined[["stop_id", "route_id", "ArRAccessibility"]],
+        left_on=["stop_id", "id"],
+        right_on=["stop_id", "route_id"],
+        how="left",
+    ).drop(columns=["route_id"])
     enriched["ArRAccessibility"] = enriched["ArRAccessibility"].fillna("unknown")
     return gpd.GeoDataFrame(enriched, geometry="geometry", crs=stops.crs)
 
@@ -368,8 +392,12 @@ def main():
     lines = prepare_lines(gdf_lines, gdf_stops)
     stops = prepare_stops(gdf_stops)
     stops = join_stops_to_lines(lines, stops)
-    # Precedence: bus < tramway < metro < train < airport shuttle < cableway < funicular
-    # (last wins on duplicate stop_id)
+    # These 7 accessibility tables each cover a disjoint mode (accessibility_bus only mode
+    # == "Bus", accessibility_train only LocalTrain/RapidTransit/regionalRail,
+    # etc.), and no (stop_id, route_long_name) pair spans two modes, so none
+    # of them share a key today - see join_accessibility's docstring. The
+    # precedence order below only matters as a safety net if that changes:
+    # bus < tramway < metro < train < airport shuttle < cableway < funicular.
     stops = join_accessibility(
         stops,
         accessibility_bus,
