@@ -6,7 +6,7 @@ Application permettant de visualiser sur une carte l'accessibilité aux personne
 
 **[https://gefleury.github.io/transports-accessibles-idf/](https://gefleury.github.io/transports-accessibles-idf/)**
 
-Site statique (MapLibre + PMTiles), sans backend ni base de données, mis à jour automatiquement chaque semaine.
+Site statique (MapLibre + PMTiles), mis à jour automatiquement chaque semaine.
 
 ## Branches
 
@@ -27,12 +27,13 @@ python -m pip install --upgrade pip  # --group nécessite pip >= 25.1
 pip install --group dev
 ```
 
-Télécharger les données, les préparer, puis générer les "tuiles" du site :
+Télécharger les données, les préparer, puis générer les "tuiles" et les pages du site :
 
 ```bash
 python src/download_data.py
 python src/prepare_data.py
 python src/build_tiles.py   # nécessite tippecanoe
+python src/build_site.py
 ```
 
 Puis lancer le site en local :
@@ -60,4 +61,4 @@ Note : les données sources restent soumises à leurs licences respectives (ODbL
 
 ## 🤖 Assistance IA
 
-Ce projet a été co-développé avec [Claude Code](https://claude.com/claude-code), l'assistant de programmation d'Anthropic.
+Ce projet a été co-développé avec [Claude Code](https://claude.com/claude-code), l'assistant de programmation d'Anthropic. Le logo du site a été généré avec [ChatGPT Images](https://chatgpt.com/fr-FR/images/).

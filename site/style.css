@@ -94,6 +94,7 @@ body {
 .home-link-text {
   display: flex;
   align-items: center;
+  gap: 6px;
   padding: 10px 14px;
   border-radius: 8px;
   color: #0f3d6b;
@@ -455,16 +456,23 @@ summary {
   border-top: 1px solid #ddd;
 }
 
-#footer #github-link {
+#footer-icons {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: none;
+}
+
+#footer #footer-icons a {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: none;
   color: #555;
   text-decoration: none;
 }
 
-#footer #github-link:hover {
+#footer #footer-icons a:hover,
+#footer #footer-icons a:active {
   color: #000;
 }
 
@@ -472,24 +480,152 @@ summary {
   color: #2471a3;
 }
 
-/* ── Content pages (Données / Mission) ─────────────────────────────────── */
+/* ── Content pages (Données / Guide de l'accessibilité / Contact) ───────── */
 
 #content {
+  position: relative;
   flex: 1;
-  overflow-y: auto;
-  margin: 0 320px;
-  padding: 24px 16px 48px;
+  background: #fff;
+  margin: 0 auto;
+  max-width: 900px;
+  width: 100%;
+  padding: 32px 32px 48px;
   box-sizing: border-box;
 }
 
+/* Faint dot-grid texture filling the margin gutters — nowhere else,
+   since these sit strictly outside #content's own box (right:100% /
+   left:100% place them flush with its edges, extending outward only).
+   Width is fluid via 100vw rather than a fixed figure, matching
+   #content's own auto-centered margin; bounded to #content's own
+   top:0/bottom:0 (its height already matches the space between banner
+   and footer) so it can't bleed into either. */
+#content::before,
+#content::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: calc((100vw - 900px) / 2);
+  background-image: radial-gradient(#0f3d6b 1px, transparent 1px);
+  background-size: 22px 22px;
+  opacity: 0.08;
+  pointer-events: none;
+}
+
+#content::before {
+  right: 100%;
+}
+
+#content::after {
+  left: 100%;
+}
+
 #content h2 {
+  font-size: 32px;
   margin-top: 0;
+  padding-bottom: 12px;
+}
+
+.intro-quote {
+  margin: 24px 0 40px;
+  padding: 18px 22px;
+  background: #f0f4f9;
+  border-radius: 8px;
+}
+
+.intro-quote p {
+  margin: 0 0 14px;
+}
+
+.intro-quote p:last-child {
+  margin-bottom: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #0f3d6b;
+}
+
+.section-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #7a8ba1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 36px 0 10px;
+}
+
+.link-list {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  max-width: 420px;
+}
+
+.link-list li {
+  border-bottom: 1px solid #eee;
+}
+
+.link-list li:last-child {
+  border-bottom: none;
+}
+
+.link-list li:hover {
+  background: #f7f9fc;
+}
+
+.link-list a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 4px;
+  font-size: 15px;
+  color: #0f3d6b;
+  text-decoration: none;
+}
+
+.link-list a:hover {
+  text-decoration: underline;
+}
+
+.link-list svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: #7a8ba1;
+}
+
+.info-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 500px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  background: #f0f4f9;
+  border: 1px solid #dde6f0;
+  border-radius: 6px;
+  color: #44576b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.info-note svg {
+  flex: none;
+  margin-top: 2px;
+  color: #7a8ba1;
+}
+
+.bmc-button {
+  display: block;
+  height: 48px;
+  margin-top: 25px;
 }
 
 /* ── Desktop/tablet: #page's base column flex (banner | #app | footer)
    already puts banner and footer full-width, with #app's default row
    flex placing #sidebar beside #main in between — so pages with no
-   #sidebar (Données / Mission) need no special-casing at all. ───────── */
+   #sidebar (Données / Guide de l'accessibilité / Contact) need no
+   special-casing at all. ─────────────────────────────────────────────── */
 
 @media (min-width: 1025px) {
   /* Gap below the banner, flush with the page's left edge — rounded only
@@ -584,7 +720,19 @@ summary {
 @media (max-width: 1024px) {
   #content {
     margin: 0;
+    max-width: none;
+    width: auto;
     padding: 16px 16px 40px;
+  }
+
+  #content::before,
+  #content::after {
+    display: none;
+  }
+
+  #content h2 {
+    font-size: 20px;
+    padding-bottom: 8px;
   }
 
   #banner {
@@ -742,6 +890,11 @@ summary {
 
   #banner h1 {
     font-size: 18px;
+  }
+
+  #content h2 {
+    font-size: 26px;
+    padding-bottom: 10px;
   }
 }
 
