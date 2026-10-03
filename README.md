@@ -4,7 +4,7 @@ Application permettant de visualiser sur une carte l'accessibilité aux personne
 
 ## App
 
-**[https://gefleury.github.io/transports-accessibles-idf/](https://gefleury.github.io/transports-accessibles-idf/)**
+**[https://www.transports-accessibles-idf.fr/](https://www.transports-accessibles-idf.fr/)**
 
 Site statique (MapLibre + PMTiles), mis à jour automatiquement chaque semaine.
 

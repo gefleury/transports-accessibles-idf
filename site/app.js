@@ -326,8 +326,8 @@ let stopsMinzoom = 0;
 
 const map = new maplibregl.Map({
   container: "map",
-  center: [2.35, 48.75],
-  zoom: 9.5,
+  center: [2.3522, 48.8566],
+  zoom: 10,
   // Basemap: light minimal style with labels in each place's local
   // language (French here) — free, no API key. Tried and rejected as too
   // detailed: Plan IGN,
@@ -459,7 +459,7 @@ function stopPopupHtml(stopFeatures) {
     const lineRows = stopLines
       .map(p => `${p.mode}, Ligne ${p.route_long_name}<br>${accessBadge(p.ArRAccessibility)}`)
       .join('<hr class="line-separator">');
-    return `<b>Arrêt « ${stopName} »</b><br>${lineRows}`;
+    return `<b>Arrêt « ${stopName} »</b><br>${lineRows}`;
   }).join('<hr class="stop-separator">');
 }
 
