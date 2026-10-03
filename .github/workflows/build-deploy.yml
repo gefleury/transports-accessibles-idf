@@ -100,6 +100,9 @@ jobs:
       - name: Browser smoke test
         run: python -m pytest tests/test_site.py -v
 
+      - name: Add custom domain CNAME
+        run: echo "www.transports-accessibles-idf.fr" > site/CNAME
+
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
