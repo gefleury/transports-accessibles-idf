@@ -2,6 +2,13 @@ html,
 body {
   margin: 0;
   height: 100%;
+  /* Without this, iOS Safari auto-inflates font sizes for text blocks
+     (p, li) based on column width, inconsistently across element types —
+     causing mismatches (e.g. p vs li, h2 vs .section-label) that only
+     show up on real devices, not in desktop resize/responsive-mode
+     testing, which doesn't run this heuristic. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   font-family:
     -apple-system,
     BlinkMacSystemFont,
@@ -745,7 +752,7 @@ summary {
   }
 
   #nav-group {
-    gap: 2px;
+    gap: 0;
   }
 
   .banner-badge {
