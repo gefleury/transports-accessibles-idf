@@ -43,7 +43,8 @@ const MODE_DEFAULT_ON = new Set(["Métro", "RER", "Tramway"]);
 const SEARCH_THRESHOLD = 12;  // add a search box above lists longer than this
 
 // The sidebar starts open in the HTML (so desktop needs no JS at all);
-// collapse it on narrow screens so the map isn't pushed below the fold.
+// collapse it where it's stacked above the map (narrow portrait screens,
+// same query as style.css) so the map isn't pushed below the fold.
 // Keep it in sync on live resizes too (not just at load), in both
 // directions — e.g. rotating a tablet from portrait to landscape should
 // re-open it, and the reverse should re-collapse it, regardless of
@@ -51,7 +52,9 @@ const SEARCH_THRESHOLD = 12;  // add a search box above lists longer than this
 // also has its own hide/show toggle now, but defaulting to open there
 // avoids landing on a collapsed sidebar just by coincidence of whatever
 // state the narrower layout left it in).
-const sidebarMobileQuery = window.matchMedia("(max-width: 1024px)");
+const sidebarMobileQuery = window.matchMedia(
+  "(max-width: 1024px) and (orientation: portrait), (max-width: 1024px) and (min-height: 501px)"
+);
 function syncSidebarOpenToWidth(isMobile) {
   const sidebar = document.getElementById("sidebar");
   if (isMobile) sidebar.removeAttribute("open");

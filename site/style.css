@@ -144,8 +144,8 @@ body {
 /* Hide/show toggle for the filter sidebar — shared behavior between the
    desktop (slim vertical tab) and mobile (full-width bar) treatments,
    each styled in their own media query below. display:flex here (not
-   scoped to either breakpoint) is safe because the two breakpoints
-   together cover every viewport width, each setting it anyway. */
+   scoped to either layout) is safe because the two layout queries are
+   exact complements covering every viewport, each setting it anyway. */
 #sidebar > summary {
   display: flex;
   list-style: none;
@@ -632,9 +632,11 @@ summary {
    already puts banner and footer full-width, with #app's default row
    flex placing #sidebar beside #main in between — so pages with no
    #sidebar (Données / Guide de l'accessibilité / Contact) need no
-   special-casing at all. ─────────────────────────────────────────────── */
+   special-casing at all. Landscape phones get this side-by-side layout
+   too: height is what they lack, so stacking the sidebar above the map
+   would leave the map almost no room. ────────────────────────────────── */
 
-@media (min-width: 1025px) {
+@media (min-width: 1025px), (orientation: landscape) and (max-height: 500px) {
   /* Gap below the banner, flush with the page's left edge — rounded only
      on the right corners, facing the map. Bottom margin matches
      #map-wrap's own bottom padding so the two boxes end at the same y.
@@ -818,7 +820,12 @@ summary {
     padding: 12px 6px;
     font-size: 15px;
   }
+}
 
+/* Sidebar stacked above the map: the exact complement of the side-by-side
+   query above (narrow, and portrait or tall enough). The banner rules
+   above stay on the plain width breakpoint, landscape phones included. */
+@media (max-width: 1024px) and (orientation: portrait), (max-width: 1024px) and (min-height: 501px) {
   #app {
     flex-direction: column;
   }
@@ -873,6 +880,7 @@ summary {
   }
 
   #sidebar[open] > summary {
+    padding-bottom: 9px;
     border-bottom: 1px solid #ddd;
   }
 
@@ -905,6 +913,13 @@ summary {
   }
 }
 
+/* Landscape phones: side-by-side layout, but even narrower than tablets'. */
+@media (max-width: 1024px) and (orientation: landscape) and (max-height: 500px) {
+  #sidebar {
+    width: 240px;
+  }
+}
+
 /* Very narrow phones: shrink the badge and title a second notch. */
 @media (max-width: 700px) {
   .banner-badge {
@@ -914,6 +929,39 @@ summary {
 
   #banner h1 {
     font-size: 14px;
+  }
+}
+
+/* Landscape phones: height is the scarce dimension, so slim the banner
+   down to give the map more room. Buttons keep a 40px tap target. */
+@media (orientation: landscape) and (max-height: 500px) {
+  #banner {
+    padding: 4px 10px 4px 16px;
+  }
+
+  .banner-badge {
+    width: 36px;
+    height: 36px;
+  }
+
+  #banner h1 {
+    font-size: 14px;
+  }
+
+  .nav-toggle,
+  .home-link-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Same reasoning for the gap below the banner, kept equal on both
+     sides so the sidebar and the zoom-hint line start together. */
+  #meta {
+    padding-top: 10px;
+  }
+
+  #sidebar {
+    margin-top: 10px;
   }
 }
 
