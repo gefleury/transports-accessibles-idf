@@ -975,6 +975,12 @@ summary {
   margin: 4px 0;
 }
 
+/* Shown when a line's platforms at this stop differ in accessibility. */
+.maplibregl-popup-content .status-note {
+  color: #666;
+  font-size: 0.9em;
+}
+
 /* Separates distinct stops merged into one popup at low zoom. */
 .maplibregl-popup-content hr.stop-separator {
   border: none;

@@ -423,26 +423,42 @@ map.on("zoomend", updateStats);
 // line or a stop (stops take priority when both are under the cursor).
 const hoverPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
 
-// Several lines can share a physical stop, stacked at the same point on the
-// map (e.g. Persan - Beaumont: TER + Transilien H) — keep one entry per
-// (mode, route_long_name, stop_name). This also absorbs the same feature
-// reported twice across a tile boundary, and a single line's two separate
-// direction platforms (different stop_id, same station) at low zoom.
-function dedupeStopLines(stopFeatures) {
-  const seen = new Set();
-  const lines = [];
+// Several lines can share a stop, stacked at the same point on the map
+// (e.g. Persan - Beaumont: TER + Transilien H) — keep one entry per
+// (stop_name, mode, route_long_name). This also absorbs the same feature
+// reported twice across a tile boundary, and a line's separate platforms
+// (different stop_id, same station) caught together at low zoom. Those
+// platforms can differ in accessibility (e.g. bus 1 at Cottages: one
+// direction partial, the other not) — so every distinct status is kept
+// rather than only the first one found.
+function groupStopLines(stopFeatures) {
+  const byStop = new Map();
   for (const f of stopFeatures) {
     const p = f.properties;
-    const key = `${p.mode}|${p.route_long_name}|${p.stop_name}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    lines.push(p);
+    if (!byStop.has(p.stop_name)) byStop.set(p.stop_name, new Map());
+    const stopLines = byStop.get(p.stop_name);
+    const key = `${p.mode}|${p.route_long_name}`;
+    if (!stopLines.has(key)) stopLines.set(key, { ...p, statuses: new Set() });
+    stopLines.get(key).statuses.add(p.ArRAccessibility);
   }
-  return lines;
+  return byStop;
 }
 
 function accessBadge(status) {
   return `<span style="color:${ACCESS_COLORS[status]}">♿ <b>${ACCESS_LABELS[status]}</b></span>`;
+}
+
+function lineRowHtml(line) {
+  // Fixed order (accessible first), whichever platform was found first.
+  const badges = Object.keys(ACCESS_LABELS)
+    .filter(status => line.statuses.has(status))
+    .map(accessBadge)
+    .join("<br>");
+  // TER and Transilien stations can list several platforms ("quais");
+  // other modes' stops are split by direction of travel.
+  const splitBy = ["TER", "Transilien"].includes(line.mode) ? "le quai" : "le sens";
+  const note = line.statuses.size > 1 ? `<br><i class="status-note">(selon ${splitBy})</i>` : "";
+  return `${line.mode}, Ligne ${line.route_long_name}<br>${badges}${note}`;
 }
 
 // One row per line serving the stop, instead of showing only whichever
@@ -452,15 +468,8 @@ function accessBadge(status) {
 // zoomed out) — group by stop_name so each gets its own header instead of
 // being merged under one.
 function stopPopupHtml(stopFeatures) {
-  const lines = dedupeStopLines(stopFeatures);
-  const byStop = new Map();
-  for (const p of lines) {
-    if (!byStop.has(p.stop_name)) byStop.set(p.stop_name, []);
-    byStop.get(p.stop_name).push(p);
-  }
-  return Array.from(byStop, ([stopName, stopLines]) => {
-    const lineRows = stopLines
-      .map(p => `${p.mode}, Ligne ${p.route_long_name}<br>${accessBadge(p.ArRAccessibility)}`)
+  return Array.from(groupStopLines(stopFeatures), ([stopName, stopLines]) => {
+    const lineRows = Array.from(stopLines.values(), lineRowHtml)
       .join('<hr class="line-separator">');
     return `<b>Arrêt « ${stopName} »</b><br>${lineRows}`;
   }).join('<hr class="stop-separator">');
