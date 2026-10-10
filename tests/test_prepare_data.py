@@ -22,12 +22,16 @@ import geopandas as gpd
 import pandas as pd
 import pytest
 
+from shapely.geometry import Point
+
 from prepare_data import (
     OUT_LINES,
     OUT_STOPS,
     RAW_ACCESSIBILITY_BUS,
     RAW_ACCESSIBILITY_TRAIN,
     RAW_STOPS,
+    STOP_AREA_PREFIX,
+    drop_unrated_ter_platforms,
     prepare_accessibility_metro,
 )
 
@@ -184,6 +188,50 @@ def test_metro_lines_are_all_known(gdf_stops):
         warnings.warn(f"Unknown metro line(s) in data, review prepare_accessibility_metro: {unknown}")
 
 
+@skip_if_no_data
+def test_train_accessibility_rates_stations_only(df_accessibility_train):
+    """accessibilite-en-gare.csv has only ever rated stop areas ("zones
+    d'arrêt"), i.e. stations ("gares"), never boarding areas ("zones
+    d'embarquement"), i.e. platforms ("quais") — drop_unrated_ter_platforms
+    relies on that to treat TER platforms as redundant. Warns (doesn't fail
+    — the CI workflow turns this into a GitHub issue) if platform-level
+    ratings appear, so the popup and drop_unrated_ter_platforms can be revisited
+    to make use of them. Rated platforms are already kept, so nothing is
+    lost meanwhile.
+    """
+    stop_ids = df_accessibility_train["stop_point_id"].str.replace("stop_point:", "", regex=False)
+    platforms = stop_ids[~stop_ids.str.startswith(STOP_AREA_PREFIX)]
+    if not platforms.empty:
+        warnings.warn(
+            f"Platform-level accessibility in train data, review drop_unrated_ter_platforms: "
+            f"{len(platforms)} platform(s), e.g. {platforms.iloc[0]}"
+        )
+
+
+# ── drop_unrated_ter_platforms on a synthetic stops table ─────────────────────
+
+
+def test_drop_unrated_ter_platforms():
+    # Lambert-93 coordinates (meters), so distances are easy to read.
+    station = f"{STOP_AREA_PREFIX}1"
+    rows = [
+        # (stop_id, route id, mode, status, x offset from the station in m)
+        (station, "L1", "TER", "false", 0),
+        ("near-unrated", "L1", "TER", "unknown", 50),  # dropped
+        ("near-rated", "L1", "TER", "partial", 50),  # kept: platform-level data
+        ("far-unrated", "L1", "TER", "unknown", 500),  # kept: other station
+        ("other-line", "L2", "TER", "unknown", 50),  # kept: no station on L2
+        ("rer-platform", "L1", "RER", "unknown", 50),  # kept: not TER
+    ]
+    stops = gpd.GeoDataFrame(
+        [{"stop_id": s, "id": r, "mode": m, "ArRAccessibility": a} for s, r, m, a, _ in rows],
+        geometry=[Point(650_000 + dx, 6_860_000) for *_, dx in rows],
+        crs="EPSG:2154",
+    )
+    kept = set(drop_unrated_ter_platforms(stops)["stop_id"])
+    assert kept == {station, "near-rated", "far-unrated", "other-line", "rer-platform"}
+
+
 # ── End-to-end tests on the processed GeoJSON files ─────────────────────────
 # These catch bugs in join_accessibility, join_stops_to_lines, and
 # join_line_accessibility that individual prepare_* tests would miss.
@@ -230,6 +278,25 @@ def test_processed_chatelet_line_14_is_accessible(processed_stops):
     assert not rows.empty, "Châtelet on line 14 not found in processed stops"
     assert (rows["ArRAccessibility"] == "true").all(), (
         "Châtelet on line 14 should be 'true' in processed stops"
+    )
+
+
+@skip_if_no_processed
+def test_processed_ter_termini_show_their_station_only(processed_stops):
+    """Paris termini TER platforms ("Paris Montparnasse", unrated) are named
+    differently from their station ("Gare Montparnasse", rated): only the station
+    must remain, checking drop_unrated_ter_platforms matches on line + distance,
+    not name, on real data.
+    """
+    ter = processed_stops[
+        (processed_stops["mode"] == "TER")
+        & (processed_stops["route_long_name"] == "TER Centre - Val de Loire")
+    ]
+    assert not ter.empty, "TER Centre - Val de Loire not found — line name may have changed"
+    names = set(ter["stop_name"])
+    assert "Gare Montparnasse" in names, "Gare Montparnasse missing from TER Centre - Val de Loire"
+    assert "Paris Montparnasse" not in names, (
+        "Unrated 'Paris Montparnasse' TER platforms should be dropped in favor of 'Gare Montparnasse'"
     )
 
 

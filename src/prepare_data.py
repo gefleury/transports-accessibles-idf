@@ -337,6 +337,47 @@ def join_accessibility(
     return gpd.GeoDataFrame(enriched, geometry="geometry", crs=stops.crs)
 
 
+STOP_AREA_PREFIX = "IDFM:monomodalStopPlace:"
+TER_PLATFORM_MAX_DISTANCE_M = 200
+
+
+def drop_unrated_ter_platforms(stops: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Drop TER platforms that duplicate their station without adding information.
+
+    IDFM's stop reference has two levels: the stop area ("zone d'arrêt"),
+    i.e. the whole station ("gare") for one mode, stop_id prefixed with
+    STOP_AREA_PREFIX; and the boarding areas ("zones d'embarquement"), i.e.
+    the platforms ("quais") inside it. accessibilite-en-gare.csv rates
+    stations only, and its levels describe access to the train, platforms
+    included. RER and Transilien stops are listed as stations only, but TER
+    lines list both a station and some of its platforms — the platforms then
+    fall back to "unknown", showing a spurious "Inconnu" dot a few meters
+    from a rated station (e.g. Joigny: station "false", two platforms
+    "unknown").
+
+    A TER platform is dropped when it is unrated and a station on the same
+    line lies within TER_PLATFORM_MAX_DISTANCE_M. Same line rather than same
+    name: Paris termini platforms are named e.g. "Paris Montparnasse" while
+    their station is "Gare Montparnasse" (114 m away). Rated platforms are
+    always kept, so platform-level data would never be discarded if IDFM
+    ever publishes it. A platform whose only nearby station serves other
+    modes (e.g. Mitry - Claye: TER platforms, station on RER B / Transilien
+    K only) is kept as "unknown": accessibility is never borrowed from
+    another mode.
+    Must be called after join_accessibility.
+    """
+    ter = stops[stops["mode"] == "TER"].to_crs(epsg=2154)
+    is_station = ter["stop_id"].str.startswith(STOP_AREA_PREFIX)
+    platforms = ter[~is_station & (ter["ArRAccessibility"] == "unknown")]
+    stations = ter[is_station]
+    pairs = platforms[["id", "stop_id", "geometry"]].reset_index().merge(
+        stations[["id", "geometry"]], on="id", suffixes=("", "_station")
+    )
+    distance = gpd.GeoSeries(pairs["geometry"]).distance(gpd.GeoSeries(pairs["geometry_station"]))
+    redundant = pairs.loc[distance <= TER_PLATFORM_MAX_DISTANCE_M, "index"].unique()
+    return stops.drop(index=redundant)
+
+
 def join_line_accessibility(
     lines: gpd.GeoDataFrame,
     stops: gpd.GeoDataFrame,
@@ -408,6 +449,7 @@ def main():
         accessibility_cableway,
         accessibility_funicular,
     )
+    stops = drop_unrated_ter_platforms(stops)
     stops.to_file(OUT_STOPS, driver="GeoJSON")
     print(f"  Written {len(stops)} stops → {OUT_STOPS}")
 

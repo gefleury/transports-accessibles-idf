@@ -69,22 +69,30 @@ jobs:
       - name: Test data pipeline
         run: python -m pytest tests/ -v | tee pytest-output.log
 
-      # test_metro_lines_are_all_known warns (doesn't fail) if IDFM data
-      # includes a metro line prepare_accessibility_metro's rules weren't
-      # written for — open an issue so it's noticed without blocking deploy.
-      - name: Notify on unknown metro lines
+      # Some tests warn (don't fail) when IDFM data changes in a way that
+      # calls for a code review but doesn't make the output wrong — open an
+      # issue (or comment on the open one) so it's noticed without blocking
+      # deploy:
+      # - test_metro_lines_are_all_known: a metro line
+      #   prepare_accessibility_metro's rules weren't written for;
+      # - test_train_accessibility_rates_stations_only: platform-level ratings, which
+      #   drop_unrated_ter_platforms and the popup could make use of.
+      - name: Notify on IDFM data changes
         run: |
-          title="Unknown metro line(s) in IDFM data"
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          if grep -q "Unknown metro line" pytest-output.log; then
-            existing=$(gh issue list --state open --search "$title in:title" --json number -q '.[0].number')
+          notify() {  # notify <log pattern> <issue title> <issue body>
+            grep -q "$1" pytest-output.log || return 0
+            existing=$(gh issue list --state open --search "$2 in:title" --json number -q '.[0].number')
             if [ -n "$existing" ]; then
               gh issue comment "$existing" --body "Still happening: $run_url"
             else
-              gh issue create --title "$title" \
-                --body "prepare_accessibility_metro's rules may need updating — see run: $run_url"
+              gh issue create --title "$2" --body "$3 — see run: $run_url"
             fi
-          fi
+          }
+          notify "Unknown metro line" "Unknown metro line(s) in IDFM data" \
+            "prepare_accessibility_metro's rules may need updating"
+          notify "Platform-level accessibility" "Platform-level accessibility in IDFM train data" \
+            'IDFM now rates some platforms ("quais"), not just stations ("gares"): review drop_unrated_ter_platforms and the stop popup to make use of it'
         env:
           GH_TOKEN: ${{ github.token }}
 
