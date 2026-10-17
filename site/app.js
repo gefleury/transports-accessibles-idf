@@ -421,7 +421,23 @@ map.on("zoomend", updateStats);
 
 // Hover tooltip: one persistent popup, shown while the cursor is over a
 // line or a stop (stops take priority when both are under the cursor).
-const hoverPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+// Clicking a feature pins the popup so its Street View links can be
+// reached — otherwise it would follow the cursor away from them. Wider
+// than MapLibre's 240px default to fit long stop names next to the icon,
+// but capped so it still fits within the map on narrow phones.
+// focusAfterOpen: false, or MapLibre would focus the first Street View link
+// each time the popup opens (on every mouse move), showing its focus style.
+const hoverPopup = new maplibregl.Popup({
+  closeButton: false, closeOnClick: false, focusAfterOpen: false, maxWidth: "min(300px, 75vw)",
+});
+let popupPinned = false;
+
+// A stop name's Street View link is shown only if all its stop points under
+// the cursor lie within this distance of each other. Further apart (e.g. a
+// bus stop's two directions on opposite sides of a street, median 33 m),
+// the link could show the wrong one — zooming in until the cursor catches
+// a single point brings it back.
+const STREETVIEW_MAX_SPREAD_M = 20;
 
 // Several lines can share a stop, stacked at the same point on the map
 // (e.g. Persan - Beaumont: TER + Transilien H) — keep one entry per
@@ -448,6 +464,60 @@ function accessBadge(status) {
   return `<span style="color:${ACCESS_COLORS[status]}">♿ <b>${ACCESS_LABELS[status]}</b></span>`;
 }
 
+// Where a stop point's Street View link should point: its station entrance
+// when it has one (prepare_data.py's add_streetview_coordinates — station
+// platforms are often far from any street panorama), else the stop itself.
+function streetViewLocation(stopFeature) {
+  const p = stopFeature.properties;
+  return p.streetview_lng != null
+    ? new maplibregl.LngLat(p.streetview_lng, p.streetview_lat)
+    : maplibregl.LngLat.convert(stopFeature.geometry.coordinates);
+}
+
+// For each stop name, where its Street View link should point: the location
+// of its stop point nearest to the cursor, if all its points' locations are
+// within STREETVIEW_MAX_SPREAD_M of each other, else null (no link).
+function streetViewTargets(stopFeatures, point) {
+  const pointsByStop = new Map();
+  for (const f of stopFeatures) {
+    const { stop_name, stop_id } = f.properties;
+    if (!pointsByStop.has(stop_name)) pointsByStop.set(stop_name, new Map());
+    pointsByStop.get(stop_name).set(stop_id, {
+      onScreen: map.project(f.geometry.coordinates),
+      location: streetViewLocation(f),
+    });
+  }
+  const targets = new Map();
+  for (const [stopName, byId] of pointsByStop) {
+    const points = Array.from(byId.values());
+    const compact = points.every(a =>
+      points.every(b => a.location.distanceTo(b.location) <= STREETVIEW_MAX_SPREAD_M));
+    const nearest = points.reduce((best, p) =>
+      p.onScreen.dist(point) < best.onScreen.dist(point) ? p : best);
+    targets.set(stopName, compact ? nearest.location : null);
+  }
+  return targets;
+}
+
+// Google Maps URLs API: opens the panorama nearest to the point, in the
+// Google Maps app on mobile when installed. hl=fr forces the French UI.
+function streetViewLink({ lng, lat }) {
+  const url = "https://www.google.com/maps/@?api=1&map_action=pano"
+    + `&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}&hl=fr`;
+  return `<a class="streetview-link" href="${url}" target="_blank" rel="noopener"
+    title="Voir dans Google Street View" aria-label="Voir dans Google Street View">
+    <svg width="21" height="21" aria-hidden="true"><use href="#icon-camera" /></svg></a>`;
+}
+
+// Shown instead of the link when the stop's points under the cursor are too
+// far apart to pick one: a struck-through grey icon, so the link doesn't seem
+// to vanish at random, plus a short hint to its right saying how to get it
+// (a tooltip wouldn't show on touch devices).
+const STREETVIEW_AMBIGUOUS_ICON = `<span class="streetview-link is-disabled" aria-hidden="true">
+  <svg width="21" height="21" viewBox="0 0 24 24"><use href="#icon-camera" />
+    <path d="M2.5 2.5l19 19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" /></svg></span>`;
+const STREETVIEW_AMBIGUOUS_NOTE = '<span class="streetview-hint">Zoomez</span>';
+
 function lineRowHtml(line) {
   // Fixed order (accessible first), whichever platform was found first.
   const badges = Object.keys(ACCESS_LABELS)
@@ -466,12 +536,17 @@ function lineRowHtml(line) {
 // radius can also span distinct nearby stations (e.g. the funicular's
 // "Gare basse" and "Gare haute", ~1km apart but close on screen when
 // zoomed out) — group by stop_name so each gets its own header instead of
-// being merged under one.
-function stopPopupHtml(stopFeatures) {
+// being merged under one. Each header gets at most one Street View link
+// (see STREETVIEW_MAX_SPREAD_M).
+function stopPopupHtml(stopFeatures, point) {
+  const targets = streetViewTargets(stopFeatures, point);
   return Array.from(groupStopLines(stopFeatures), ([stopName, stopLines]) => {
     const lineRows = Array.from(stopLines.values(), lineRowHtml)
       .join('<hr class="line-separator">');
-    return `<b>Arrêt « ${stopName} »</b><br>${lineRows}`;
+    const target = targets.get(stopName);
+    const link = target ? streetViewLink(target) : STREETVIEW_AMBIGUOUS_ICON;
+    const note = target ? "" : STREETVIEW_AMBIGUOUS_NOTE;
+    return `<div class="stop-title"><b>Arrêt « ${stopName} »</b>${link}${note}</div>${lineRows}`;
   }).join('<hr class="stop-separator">');
 }
 
@@ -490,17 +565,27 @@ function updateHoverPopup(point, lngLat) {
   map.getCanvas().style.cursor = "pointer";
 
   const stopFeatures = features.filter(f => f.layer.id === "stops");
-  const html = stopFeatures.length ? stopPopupHtml(stopFeatures) : linePopupHtml(features[0]);
+  const html = stopFeatures.length ? stopPopupHtml(stopFeatures, point) : linePopupHtml(features[0]);
   hoverPopup.setLngLat(lngLat).setHTML(html).addTo(map);
 }
 
-map.on("mousemove", e => updateHoverPopup(e.point, e.lngLat));
+map.on("mousemove", e => {
+  if (!popupPinned) {
+    updateHoverPopup(e.point, e.lngLat);
+    return;
+  }
+  // Pinned: leave the popup alone, just keep the cursor hint accurate.
+  const hit = map.queryRenderedFeatures(e.point, { layers: ["stops", "lines"] }).length;
+  map.getCanvas().style.cursor = hit ? "pointer" : "";
+});
 map.on("mouseout", () => {
-  hoverPopup.remove();
+  if (!popupPinned) hoverPopup.remove();
   map.getCanvas().style.cursor = "";
 });
-// Touch devices have no hover equivalent: a tap never fires mousemove, so
-// popups would otherwise never appear on mobile. Tapping a feature shows
-// its popup directly; tapping elsewhere closes it, standing in for the
-// mouseout that touch also never fires.
-map.on("click", e => updateHoverPopup(e.point, e.lngLat));
+// Clicking a feature pins its popup; clicking elsewhere closes it. This is
+// also the only way to open a popup on touch devices, where a tap never
+// fires mousemove (nor the mouseout that would close it).
+map.on("click", e => {
+  updateHoverPopup(e.point, e.lngLat);
+  popupPinned = hoverPopup.isOpen();
+});

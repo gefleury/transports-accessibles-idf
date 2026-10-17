@@ -128,6 +128,66 @@ def test_selecting_line_shows_it_for_a_mode_disabled_by_default(page):
     expect(all_box).not_to_be_checked()
 
 
+def _stop_popup(page, stops, cursor):
+    """Render the stop popup for synthetic stop points, without the map.
+
+    Each stop is (stop_name, stop_id, lat, lng) or, for a station with an
+    entrance, (stop_name, stop_id, lat, lng, entrance_lat, entrance_lng).
+    The cursor is a (lat, lng). Returns, per stop name heading: its Street
+    View link's "lat,lng" (None if no link), and whether it shows the
+    greyed-out "Zoomez" chip instead.
+    """
+    return page.evaluate(
+        """([stops, cursor]) => {
+          const features = stops.map(([name, id, lat, lng, eLat, eLng]) => ({
+            properties: {stop_name: name, stop_id: id, mode: 'Bus', route_long_name: '1',
+                         ArRAccessibility: 'true', streetview_lat: eLat ?? null, streetview_lng: eLng ?? null},
+            geometry: {coordinates: [lng, lat]},
+          }));
+          const div = document.createElement('div');
+          div.innerHTML = stopPopupHtml(features, map.project([cursor[1], cursor[0]]));
+          return [...div.querySelectorAll('.stop-title')].map(t => ({
+            link: t.querySelector('a.streetview-link')?.href.match(/viewpoint=([^&]+)/)[1] ?? null,
+            zoomHint: t.querySelector('.streetview-link.is-disabled') !== null
+              && t.textContent.includes('Zoomez'),
+          }));
+        }""",
+        [stops, cursor],
+    )
+
+
+def test_streetview_link_policy(page):
+    # 1e-4° of latitude ≈ 11 m.
+    lat, lng = 48.86, 2.35
+
+    # A single stop point (reported twice, as across a tile boundary): link
+    # at the point itself.
+    single = _stop_popup(page, [("A", "a1", lat, lng), ("A", "a1", lat, lng)], (lat, lng))
+    assert single == [{"link": f"{lat:.6f},{lng:.6f}", "zoomHint": False}]
+
+    # Two points ~18 m apart (e.g. facing tram platforms, Porte d'Ivry): one
+    # link, at the point nearest the cursor — never at the cursor itself.
+    north = lat + 1.6e-4
+    close = _stop_popup(page, [("B", "b1", lat, lng), ("B", "b2", north, lng)], (north + 1e-5, lng))
+    assert close == [{"link": f"{north:.6f},{lng:.6f}", "zoomHint": False}]
+
+    # Two points ~22 m apart (e.g. a bus stop's two directions, Cottages):
+    # no link, a greyed-out chip asking to zoom in instead.
+    far = _stop_popup(page, [("C", "c1", lat, lng), ("C", "c2", lat + 2.0e-4, lng)], (lat, lng))
+    assert far == [{"link": None, "zoomHint": True}]
+
+    # A station with an entrance (e.g. RER B Cité Universitaire): link at
+    # the entrance, not at the platforms; the rule applies per heading.
+    entrance = (lat + 1e-3, lng + 1e-3)
+    mixed = _stop_popup(
+        page, [("D", "d1", lat, lng, *entrance), ("C", "c1", lat, lng), ("C", "c2", lat + 2.0e-4, lng)], (lat, lng)
+    )
+    assert mixed == [
+        {"link": f"{entrance[0]:.6f},{entrance[1]:.6f}", "zoomHint": False},
+        {"link": None, "zoomHint": True},
+    ]
+
+
 def test_show_all_checkbox_syncs_with_line_selection(page):
     # "Afficher toutes les lignes" must never stay checked once it no longer
     # reflects reality, and re-checking it must restore the literal "all"

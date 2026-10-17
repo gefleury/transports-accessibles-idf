@@ -34,6 +34,24 @@ DATASETS = [
         "csv",
         DATA_DIR / "accessibilite-en-gare.csv",
     ),
+    # Station entrances ("accès"), their stop area ("zone d'arrêt"), and each
+    # stop point's stop area: used to point Street View links at an entrance
+    # rather than at the platforms.
+    (
+        "acces",
+        "csv",
+        DATA_DIR / "acces.csv",
+    ),
+    (
+        "relations-acces",
+        "csv",
+        DATA_DIR / "relations-acces.csv",
+    ),
+    (
+        "relations",
+        "csv",
+        DATA_DIR / "relations.csv",
+    ),
 ]
 
 

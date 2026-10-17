@@ -967,6 +967,53 @@ summary {
 
 /* ── Stop popup ─────────────────────────────────────────────────────────── */
 
+/* Stop name + Street View icon: the name is one block (wrapping onto
+   several lines if long), the icon sits to its right, vertically centered. */
+.maplibregl-popup-content .stop-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+/* Tinted chip, so the icon reads as a button; inverts on hover/focus. */
+.maplibregl-popup-content .streetview-link {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 24px;
+  /* Negative vertical margins: taller than a one-line title without
+     pushing the rows below it down; uneven to sit 2px higher, clear of
+     the line below (still clear of a stop-separator above). */
+  margin: -5px 0 -1px;
+  border-radius: 6px;
+  background: #e3eef7;
+  color: #1d5f8c;
+}
+
+.maplibregl-popup-content a.streetview-link:hover,
+.maplibregl-popup-content a.streetview-link:focus-visible {
+  background: #2471a3;
+  color: #fff;
+}
+
+/* Not a link: the stop's points are too far apart to pick one (see app.js). */
+.maplibregl-popup-content .streetview-link.is-disabled {
+  background: #eef0f2;
+  color: #9aa3ab;
+}
+
+/* "Zoomez" hint to the right of the greyed-out icon. */
+.maplibregl-popup-content .streetview-hint {
+  flex-shrink: 0;
+  margin-left: -4px;
+  color: #666;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
 /* Separates lines within the same stop — kept subtle so it doesn't compete
    with the heavier stop-separator below. */
 .maplibregl-popup-content hr.line-separator {
