@@ -37,7 +37,7 @@ const ACCESS_COUNT_FIELD = {
 // board and alight accessibly.
 const MIN_MATCHING_STOPS = 2;
 document.getElementById("lines-hint").textContent =
-  `ℹ️ Seules les lignes ayant au moins ${MIN_MATCHING_STOPS} arrêts correspondant ` +
+  `Seules les lignes ayant au moins ${MIN_MATCHING_STOPS} arrêts correspondant ` +
   "à l'accessibilité sélectionnée sont affichées et proposées dans les listes.";
 const MODE_DEFAULT_ON = new Set(["Métro", "RER", "Tramway"]);
 const SEARCH_THRESHOLD = 12;  // add a search box above lists longer than this
@@ -117,13 +117,18 @@ function visibleRouteIds() {
 function applyFilters() {
   const ids = visibleRouteIds();
   const access = selectedAccess();
-  map.setFilter("lines", ["in", ["get", "route_id"], ["literal", ids]]);
-  map.setFilter("stops", ["all",
-    ["in", ["get", "id"], ["literal", ids]],
-    ["in", ["get", "ArRAccessibility"], ["literal", access]],
-  ]);
-  // Mirror the Streamlit app: no accessibility selected → no stops at all.
-  map.setLayoutProperty("stops", "visibility", access.length ? "visible" : "none");
+  // Base layers and their highlight copies (highlight.js) share filters.
+  for (const id of ["lines", ...LINES_COPY_IDS]) {
+    map.setFilter(id, ["in", ["get", "route_id"], ["literal", ids]]);
+  }
+  for (const id of ["stops", ...STOPS_COPY_IDS]) {
+    map.setFilter(id, ["all",
+      ["in", ["get", "id"], ["literal", ids]],
+      ["in", ["get", "ArRAccessibility"], ["literal", access]],
+    ]);
+    // Mirror the Streamlit app: no accessibility selected → no stops at all.
+    map.setLayoutProperty(id, "visibility", access.length ? "visible" : "none");
+  }
   shownLineCount = ids.length;
   updateStats();
 }
@@ -131,11 +136,8 @@ function applyFilters() {
 let shownLineCount = 0;
 
 function updateStats() {
-  let text = `${shownLineCount} ligne(s) affichée(s)`;
-  if (selectedAccess().length > 0 && map.getZoom() < stopsMinzoom) {
-    text += ' | <span class="zoom-hint">Zoomez pour afficher les arrêts</span>';
-  }
-  document.getElementById("stats").innerHTML = text;
+  document.getElementById("stats").textContent = `${shownLineCount} ligne(s) affichée(s)`;
+  updateMapNotice();  // its zoom hint depends on the same state
 }
 
 // ── Sidebar widgets ──────────────────────────────────────────────────────────
@@ -348,6 +350,16 @@ map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-ri
 // to avoid a flash of the expanded control on every page load.
 document.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
 
+// Color by a feature property, e.g. a line's mode → MODE_COLORS; `transform`
+// derives other shades (the faded ones in highlight.js).
+function colorExpression(property, colors, fallback, transform = c => c) {
+  return ["match", ["get", property],
+    ...Object.entries(colors).flatMap(([value, color]) => [value, transform(color)]),
+    transform(fallback)];
+}
+const lineColor = transform => colorExpression("mode", MODE_COLORS, "#95A5A6", transform);
+const stopColor = transform => colorExpression("ArRAccessibility", ACCESS_COLORS, "#888888", transform);
+
 const LINES_LAYER = {
   id: "lines",
   type: "line",
@@ -357,9 +369,7 @@ const LINES_LAYER = {
   // while lines.json and the tile metadata are still loading.
   filter: ["in", ["get", "route_id"], ["literal", []]],
   paint: {
-    "line-color": ["match", ["get", "mode"],
-      ...Object.entries(MODE_COLORS).flat(),
-      "#95A5A6"],
+    "line-color": lineColor(),
     "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 12, 2.5],
     "line-opacity": 0.8,
   },
@@ -383,9 +393,7 @@ const STOPS_LAYER = {
     "circle-sort-key": ["match", ["get", "ArRAccessibility"], "unknown", 0, 1],
   },
   paint: {
-    "circle-color": ["match", ["get", "ArRAccessibility"],
-      ...Object.entries(ACCESS_COLORS).flat(),
-      "#888888"],
+    "circle-color": stopColor(),
     "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 3, 11, 5, 14, 8],
     "circle-stroke-width": 1,
     "circle-stroke-color": "#ffffff",
@@ -395,18 +403,25 @@ const STOPS_LAYER = {
 
 map.on("load", async () => {
 
-  map.addSource("transports", { type: "vector", url: "pmtiles://" + TILES_URL });
+  // promoteId: feature ids for feature-state (the highlight, highlight.js) —
+  // a line's id for both its segments and its stops.
+  map.addSource("transports", {
+    type: "vector",
+    url: "pmtiles://" + TILES_URL,
+    promoteId: { lines: "route_id", stops: "id" },
+  });
   // Insert beneath the basemap's first label layer so place names stay
   // readable on top of the transport lines and stops.
   const firstLabelId = map.getStyle().layers.find(l => l.type === "symbol")?.id;
   map.addLayer(LINES_LAYER, firstLabelId);
   map.addLayer(STOPS_LAYER, firstLabelId);
+  addHighlightLayers(firstLabelId);
 
   const meta = await tilesFile.getMetadata();
   const stopsLayer = (meta.vector_layers ?? []).find(l => l.id === "stops");
   if (stopsLayer) {
     stopsMinzoom = stopsLayer.minzoom;
-    map.setLayerZoomRange("stops", stopsMinzoom, 24);
+    for (const id of ["stops", ...STOPS_COPY_IDS]) map.setLayerZoomRange(id, stopsMinzoom, 24);
   }
 
   const payload = await (await fetch("data/lines.json")).json();
@@ -419,18 +434,67 @@ map.on("load", async () => {
 });
 map.on("zoomend", updateStats);
 
-// Hover tooltip: one persistent popup, shown while the cursor is over a
-// line or a stop (stops take priority when both are under the cursor).
-// Clicking a feature pins the popup so its Street View links can be
-// reached — otherwise it would follow the cursor away from them. Wider
-// than MapLibre's 240px default to fit long stop names next to the icon,
-// but capped so it still fits within the map on narrow phones.
-// focusAfterOpen: false, or MapLibre would focus the first Street View link
-// each time the popup opens (on every mouse move), showing its focus style.
+// One persistent popup for the line or stop under the cursor (stops take
+// priority when both are). Hovering only previews it. Clicking selects:
+// the selection is highlighted (highlight.js — on click only, as fading the
+// whole map on every mouse move was tiring) and its popup pinned, so its
+// Street View links can be reached. Wider than MapLibre's 240px default to
+// fit long stop names next to the icon, but capped so it still fits within
+// the map on narrow phones. focusAfterOpen: false, or MapLibre would focus
+// the first Street View link each time the popup opens, showing its focus
+// style. The close button only shows on a pinned popup (CSS, .pinned):
+// closing it uncovers the map but keeps the selection, until a click on an
+// empty spot of the map or the "Revenir à la vue d'ensemble" button.
 const hoverPopup = new maplibregl.Popup({
-  closeButton: false, closeOnClick: false, focusAfterOpen: false, maxWidth: "min(300px, 75vw)",
+  closeButton: true, closeOnClick: false, focusAfterOpen: false, maxWidth: "min(300px, 75vw)",
 });
-let popupPinned = false;
+let selectionActive = false;
+
+// Notice at the top of the map: how to show stops when zoomed out, and how
+// to select — the latter only while hovering a line or stop, and until the
+// user has selected once (remembered in the browser; shown again if storage
+// is unavailable). Deselecting needs no hint: the "Revenir à la vue d'ensemble"
+// button says it.
+const SELECT_HINT_KEY = "hint-learned-select";
+function selectHintLearned() {
+  try { return localStorage.getItem(SELECT_HINT_KEY) === "1"; } catch { return false; }
+}
+function learnSelectHint() {
+  try { localStorage.setItem(SELECT_HINT_KEY, "1"); } catch { /* not remembered */ }
+}
+
+// Hidden until there's something to say — else an empty box shows while the
+// map loads.
+const mapNotice = document.createElement("div");
+mapNotice.className = "map-notice";
+mapNotice.setAttribute("role", "status");
+mapNotice.hidden = true;
+document.getElementById("map").appendChild(mapNotice);
+
+function updateMapNotice() {
+  const messages = [];
+  if (selectedAccess().length > 0 && map.getZoom() < stopsMinzoom) {
+    messages.push("Zoomez pour afficher les arrêts");
+  }
+  if (!selectionActive && hoverPopup.isOpen() && !selectHintLearned()) {
+    messages.push(`Astuce\u00a0: cliquez pour faire ressortir ${popupSubject}`);
+  }
+  const html = messages
+    .map(m => `<div><svg width="16" height="16" aria-hidden="true"><use href="#icon-info" /></svg>${m}</div>`)
+    .join("");
+  if (mapNotice.innerHTML !== html) mapNotice.innerHTML = html;  // called on every mouse move
+  mapNotice.hidden = messages.length === 0;
+}
+
+// Shown at the bottom of the map while a selection is active — the way back
+// once the popup is closed, also on touch devices.
+const deselectButton = document.createElement("button");
+deselectButton.type = "button";
+deselectButton.className = "deselect-button";
+deselectButton.textContent = "Revenir à la vue d'ensemble";
+deselectButton.hidden = true;
+deselectButton.addEventListener("click", () => clearSelection());
+document.getElementById("map").appendChild(deselectButton);
 
 // A stop name's Street View link is shown only if all its stop points under
 // the cursor lie within this distance of each other. Further apart (e.g. a
@@ -558,37 +622,72 @@ function linePopupHtml(lineFeature) {
   return `<b>Ligne ${p.route_long_name}</b><br>${p.mode} (${p.operatorname})`;
 }
 
-function updateHoverPopup(point, lngLat) {
-  const features = map.queryRenderedFeatures(point, { layers: ["stops", "lines"] });
-  if (!features.length) {
-    hoverPopup.remove();
-    map.getCanvas().style.cursor = "";
-    return;
-  }
-  map.getCanvas().style.cursor = "pointer";
+const featuresAt = point => map.queryRenderedFeatures(point, { layers: ["stops", "lines"] });
+const stopsAmong = features => features.filter(f => f.layer.id === "stops");
 
-  const stopFeatures = features.filter(f => f.layer.id === "stops");
+// What the popup is about, for the select hint (updateMapNotice).
+let popupSubject = "";
+function showPopup(features, point, lngLat, pinned) {
+  const stopFeatures = stopsAmong(features);
+  const stopNames = new Set(stopFeatures.map(f => f.properties.stop_name));
+  popupSubject = stopNames.size > 1 ? "ces arrêts et leurs lignes"
+    : stopNames.size === 1 ? "cet arrêt et ses lignes"
+    : "cette ligne";
   const html = stopFeatures.length ? stopPopupHtml(stopFeatures, point) : linePopupHtml(features[0]);
   hoverPopup.setLngLat(lngLat).setHTML(html).addTo(map);
+  if (pinned) hoverPopup.addClassName("pinned");
+  else hoverPopup.removeClassName("pinned");
 }
 
-map.on("mousemove", e => {
-  if (!popupPinned) {
-    updateHoverPopup(e.point, e.lngLat);
-    return;
+function hidePopup() {
+  hoverPopup.remove();
+  updateMapNotice();
+}
+
+// A stop highlights itself and every line serving it (all those listed in
+// its popup); a line, only itself.
+function select(features, point, lngLat) {
+  const stopFeatures = stopsAmong(features);
+  if (stopFeatures.length) {
+    setHighlight(stopFeatures.map(f => f.properties.id), stopFeatures);
+  } else {
+    setHighlight([features[0].properties.route_id], []);
   }
-  // Pinned: leave the popup alone, just keep the cursor hint accurate.
-  const hit = map.queryRenderedFeatures(e.point, { layers: ["stops", "lines"] }).length;
-  map.getCanvas().style.cursor = hit ? "pointer" : "";
+  learnSelectHint();
+  showPopup(features, point, lngLat, true);
+  selectionActive = true;
+  deselectButton.hidden = false;
+  updateMapNotice();
+}
+
+function clearSelection() {
+  setHighlight([], []);
+  selectionActive = false;
+  deselectButton.hidden = true;
+  hidePopup();
+}
+
+// While a selection is active, hovering leaves it (and its popup) alone.
+map.on("mousemove", e => {
+  const features = featuresAt(e.point);
+  map.getCanvas().style.cursor = features.length ? "pointer" : "";
+  if (selectionActive) return;
+  if (features.length) {
+    showPopup(features, e.point, e.lngLat, false);
+    updateMapNotice();
+  } else {
+    hidePopup();
+  }
 });
 map.on("mouseout", () => {
-  if (!popupPinned) hoverPopup.remove();
+  if (!selectionActive) hidePopup();
   map.getCanvas().style.cursor = "";
 });
-// Clicking a feature pins its popup; clicking elsewhere closes it. This is
-// also the only way to open a popup on touch devices, where a tap never
-// fires mousemove (nor the mouseout that would close it).
+// Clicking a feature selects it; clicking an empty spot deselects. Also the
+// only way to open a popup on touch devices, where a tap never fires
+// mousemove (nor the mouseout that would close it).
 map.on("click", e => {
-  updateHoverPopup(e.point, e.lngLat);
-  popupPinned = hoverPopup.isOpen();
+  const features = featuresAt(e.point);
+  if (features.length) select(features, e.point, e.lngLat);
+  else clearSelection();
 });

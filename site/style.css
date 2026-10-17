@@ -189,13 +189,6 @@ body {
   font-size: 12px;
 }
 
-.zoom-hint {
-  font-weight: 600;
-  background: #eee;
-  padding: 2px 6px;
-  border-radius: 3px;
-}
-
 #map-wrap {
   flex: 1;
   display: flex;
@@ -219,6 +212,19 @@ h2 {
   color: #666;
   font-size: 11px;
   margin: 4px 0 8px;
+}
+
+/* Hint with the site's info icon beside it (filter panel). */
+.info-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.info-hint svg {
+  flex: none;
+  margin-top: 1px;
+  color: #44576b;
 }
 
 label {
@@ -619,7 +625,7 @@ summary {
 .info-note svg {
   flex: none;
   margin-top: 2px;
-  color: #7a8ba1;
+  color: #44576b;
 }
 
 .bmc-button {
@@ -955,7 +961,7 @@ summary {
   }
 
   /* Same reasoning for the gap below the banner, kept equal on both
-     sides so the sidebar and the zoom-hint line start together. */
+     sides so the sidebar and the stats line start together. */
   #meta {
     padding-top: 10px;
   }
@@ -966,6 +972,94 @@ summary {
 }
 
 /* ── Stop popup ─────────────────────────────────────────────────────────── */
+
+/* Close button: only on a popup pinned by a click (app.js), not on the
+   hover preview. Enlarged from MapLibre's default for touch; the content
+   is padded so the button never covers the Street View chip. */
+.maplibregl-popup:not(.pinned) .maplibregl-popup-close-button {
+  display: none;
+}
+
+.maplibregl-popup.pinned .maplibregl-popup-close-button {
+  width: 28px;
+  height: 28px;
+  font-size: 20px;
+  line-height: 1;
+  color: #555;
+}
+
+.maplibregl-popup.pinned .maplibregl-popup-content {
+  padding-right: 30px;
+}
+
+/* Notice at the top of the map: zoom hint, how to select/deselect (app.js).
+   Narrower than the map so it never covers the zoom buttons. */
+.map-notice {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  /* max-content: left: 50% alone would cap the width at half the map. */
+  width: max-content;
+  max-width: calc(100% - 110px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px solid #c9d6e2;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  color: #0f3d6b;
+  font-size: 0.85rem;
+  font-weight: 600;
+  pointer-events: none;  /* never in the way of the map */
+}
+
+.map-notice > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.map-notice svg {
+  flex-shrink: 0;
+}
+
+.map-notice[hidden] {
+  display: none;
+}
+
+/* Shown at the bottom of the map while a line or stop is selected. */
+.deselect-button {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid #c9d6e2;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  color: #0f3d6b;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.deselect-button:hover,
+.deselect-button:focus-visible {
+  background: #e3eef7;
+}
+
+.deselect-button[hidden] {
+  display: none;
+}
 
 /* Stop name + Street View icon: the name is one block (wrapping onto
    several lines if long), the icon sits to its right, vertically centered. */
