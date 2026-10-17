@@ -460,8 +460,10 @@ function groupStopLines(stopFeatures) {
   return byStop;
 }
 
+// data-* attributes: no effect on display, they let tests read the popup's
+// structure without depending on its wording (tests/test_site.py).
 function accessBadge(status) {
-  return `<span style="color:${ACCESS_COLORS[status]}">♿ <b>${ACCESS_LABELS[status]}</b></span>`;
+  return `<span data-accessibility="${status}" style="color:${ACCESS_COLORS[status]}">♿ <b>${ACCESS_LABELS[status]}</b></span>`;
 }
 
 // Where a stop point's Street View link should point: its station entrance
@@ -528,7 +530,8 @@ function lineRowHtml(line) {
   // other modes' stops are split by direction of travel.
   const splitBy = ["TER", "Transilien"].includes(line.mode) ? "le quai" : "le sens";
   const note = line.statuses.size > 1 ? `<br><i class="status-note">(selon ${splitBy})</i>` : "";
-  return `${line.mode}, Ligne ${line.route_long_name}<br>${badges}${note}`;
+  return `<div data-line="${line.mode} ${line.route_long_name}">`
+    + `${line.mode}, Ligne ${line.route_long_name}<br>${badges}${note}</div>`;
 }
 
 // One row per line serving the stop, instead of showing only whichever

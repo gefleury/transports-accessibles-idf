@@ -69,15 +69,16 @@ jobs:
       - name: Test data pipeline
         run: python -m pytest tests/ -v | tee pytest-output.log
 
-      # Some tests warn (don't fail) when IDFM data changes in a way that
-      # calls for a code review but doesn't make the output wrong — open an
-      # issue (or comment on the open one) so it's noticed without blocking
-      # deploy:
+      # Some tests warn (don't fail) when something outside this repo changes
+      # in a way that calls for a fix but doesn't make the output wrong —
+      # open an issue (or comment on the open one) so it's noticed without
+      # blocking deploy:
       # - test_metro_lines_are_all_known: a metro line
       #   prepare_accessibility_metro's rules weren't written for;
       # - test_train_accessibility_rates_stations_only: platform-level ratings, which
-      #   drop_unrated_ter_platforms and the popup could make use of.
-      - name: Notify on IDFM data changes
+      #   drop_unrated_ter_platforms and the popup could make use of;
+      # - test_external_links_are_not_broken: a dead link on the site's pages.
+      - name: Notify on upstream changes
         run: |
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           notify() {  # notify <log pattern> <issue title> <issue body>
@@ -93,6 +94,8 @@ jobs:
             "prepare_accessibility_metro's rules may need updating"
           notify "Platform-level accessibility" "Platform-level accessibility in IDFM train data" \
             'IDFM now rates some platforms ("quais"), not just stations ("gares"): review drop_unrated_ter_platforms and the stop popup to make use of it'
+          notify "Broken external link" "Broken external link(s) on the site" \
+            "A link in site/_pages/ or site/_partials/ returns 404/410 or its domain no longer exists (the run's pytest log lists them)"
         env:
           GH_TOKEN: ${{ github.token }}
 

@@ -188,6 +188,51 @@ def test_streetview_link_policy(page):
     ]
 
 
+def test_stop_popup_lists_each_line_once_with_all_accessibility_statuses(page):
+    """Several stop points with the same name, mode and line (a line's two
+    directions or platforms, caught together at low zoom) must share one
+    row, listing every distinct accessibility status (accessible, partial…)
+    with a note when they differ. The popup used to keep only the first
+    status found, hiding e.g. one direction's status at Cottages (bus 1).
+
+    Reads the popup's data-* attributes, not its text, so rewording or
+    reordering the popup doesn't break the test.
+    """
+    stops = [
+        # (stop_name, stop_id, mode, line, accessibility status)
+        ("Cottages", "c1", "Bus", "1", "partial"),
+        ("Cottages", "c2", "Bus", "1", "false"),
+        ("Châtelet", "m1", "Métro", "14", "true"),
+        ("Châtelet", "m2", "Métro", "14", "true"),
+    ]
+    headings = page.evaluate(
+        """(stops) => {
+          const c = map.getCenter();
+          const features = stops.map(([name, id, mode, line, status]) => ({
+            properties: {stop_name: name, stop_id: id, mode, route_long_name: line, ArRAccessibility: status},
+            geometry: {coordinates: [c.lng, c.lat]},
+          }));
+          hoverPopup.setLngLat(c).setHTML(stopPopupHtml(features, map.project(c))).addTo(map);
+          const popup = document.querySelector('.maplibregl-popup-content');
+          return {
+            rows: [...popup.querySelectorAll('[data-line]')].map(row => ({
+              statuses: [...row.querySelectorAll('[data-accessibility]')].map(b => b.dataset.accessibility).sort(),
+              hasNote: row.querySelector('.status-note') !== null,
+            })),
+            focused: document.activeElement.tagName,
+          };
+        }""",
+        stops,
+    )
+    cottages, chatelet = headings["rows"]
+    assert cottages == {"statuses": ["false", "partial"], "hasNote": True}
+    assert chatelet == {"statuses": ["true"], "hasNote": False}
+
+    # Regression: MapLibre focuses a popup's first link when it opens
+    # (focusAfterOpen), which showed the Street View chip in its focus style.
+    assert headings["focused"] == "BODY", "Opening the popup should not move the focus"
+
+
 def test_show_all_checkbox_syncs_with_line_selection(page):
     # "Afficher toutes les lignes" must never stay checked once it no longer
     # reflects reality, and re-checking it must restore the literal "all"
