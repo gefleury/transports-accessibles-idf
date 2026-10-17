@@ -17,6 +17,9 @@ RAW_LINES = Path("data/traces-des-lignes-de-transport-en-commun-idfm.geojson")
 RAW_STOPS = Path("data/arrets-lignes.geojson")
 RAW_ACCESSIBILITY_BUS = Path("data/sdap-arrets-associes.csv")
 RAW_ACCESSIBILITY_TRAIN = Path("data/accessibilite-en-gare.csv")
+RAW_ENTRANCES = Path("data/acces.csv")
+RAW_ENTRANCE_RELATIONS = Path("data/relations-acces.csv")
+RAW_STOP_RELATIONS = Path("data/relations.csv")
 OUT_DIR = Path("data/processed")
 
 OUT_LINES = OUT_DIR / "lines.geojson"
@@ -337,6 +340,120 @@ def join_accessibility(
     return gpd.GeoDataFrame(enriched, geometry="geometry", crs=stops.crs)
 
 
+STOP_AREA_PREFIX = "IDFM:monomodalStopPlace:"
+TER_PLATFORM_MAX_DISTANCE_M = 200
+
+
+def drop_unrated_ter_platforms(stops: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Drop TER platforms that duplicate their station without adding information.
+
+    IDFM's stop reference has two levels: the stop area ("zone d'arrêt"),
+    i.e. the whole station ("gare") for one mode, stop_id prefixed with
+    STOP_AREA_PREFIX; and the boarding areas ("zones d'embarquement"), i.e.
+    the platforms ("quais") inside it. accessibilite-en-gare.csv rates
+    stations only, and its levels describe access to the train, platforms
+    included. RER and Transilien stops are listed as stations only, but TER
+    lines list both a station and some of its platforms — the platforms then
+    fall back to "unknown", showing a spurious "Inconnu" dot a few meters
+    from a rated station (e.g. Joigny: station "false", two platforms
+    "unknown").
+
+    A TER platform is dropped when it is unrated and a station on the same
+    line lies within TER_PLATFORM_MAX_DISTANCE_M. Same line rather than same
+    name: Paris termini platforms are named e.g. "Paris Montparnasse" while
+    their station is "Gare Montparnasse" (114 m away). Rated platforms are
+    always kept, so platform-level data would never be discarded if IDFM
+    ever publishes it. A platform whose only nearby station serves other
+    modes (e.g. Mitry - Claye: TER platforms, station on RER B / Transilien
+    K only) is kept as "unknown": accessibility is never borrowed from
+    another mode.
+    Must be called after join_accessibility.
+    """
+    ter = stops[stops["mode"] == "TER"].to_crs(epsg=2154)
+    is_station = ter["stop_id"].str.startswith(STOP_AREA_PREFIX)
+    platforms = ter[~is_station & (ter["ArRAccessibility"] == "unknown")]
+    stations = ter[is_station]
+    pairs = platforms[["id", "stop_id", "geometry"]].reset_index().merge(
+        stations[["id", "geometry"]], on="id", suffixes=("", "_station")
+    )
+    distance = gpd.GeoSeries(pairs["geometry"]).distance(gpd.GeoSeries(pairs["geometry_station"]))
+    redundant = pairs.loc[distance <= TER_PLATFORM_MAX_DISTANCE_M, "index"].unique()
+    return stops.drop(index=redundant)
+
+
+def stop_area_ids(stops: gpd.GeoDataFrame, df_stop_relations: pd.DataFrame) -> pd.Series:
+    """Stop area ("zone d'arrêt") id of each stop point, aligned on stops.
+
+    Stations listed as stop areas (STOP_AREA_PREFIX: RER, Transilien, TER)
+    carry it in their stop_id; other stop points (e.g. metro platforms) are
+    looked up in df_stop_relations (arrid: stop point id → zdaid).
+    """
+    raw_id = stops["stop_id"].str.removeprefix("IDFM:")
+    is_stop_area = stops["stop_id"].str.startswith(STOP_AREA_PREFIX)
+    stop_area_of_point = df_stop_relations.drop_duplicates("arrid").set_index("arrid")["zdaid"]
+    ids = pd.Series(pd.NA, index=stops.index, dtype="Int64")
+    ids[is_stop_area] = raw_id[is_stop_area].str.removeprefix("monomodalStopPlace:").astype(int)
+    ids[~is_stop_area] = pd.to_numeric(raw_id[~is_stop_area], errors="coerce").map(stop_area_of_point)
+    return ids
+
+
+def entry_entrances(
+    df_entrances: pd.DataFrame, df_entrance_relations: pd.DataFrame
+) -> gpd.GeoDataFrame:
+    """Station entrances ("accès") usable to enter (exit-only ones dropped),
+    one row per (entrance, stop area) pair, in Lambert-93."""
+    entries = df_entrances[df_entrances["accisentry"].astype(str).str.lower() == "true"]
+    entries = entries.merge(df_entrance_relations[["accid", "zdaid"]], on="accid")
+    return gpd.GeoDataFrame(
+        entries[["accid", "zdaid"]],
+        geometry=gpd.points_from_xy(entries["accxespg2154"], entries["accyespg2154"]),
+        crs="EPSG:2154",
+    )
+
+
+def add_streetview_coordinates(
+    stops: gpd.GeoDataFrame,
+    df_entrances: pd.DataFrame,
+    df_entrance_relations: pd.DataFrame,
+    df_stop_relations: pd.DataFrame,
+) -> gpd.GeoDataFrame:
+    """Add streetview_lng/streetview_lat: where the stop's Street View link
+    should point, when not at the stop point itself.
+
+    Station stop points sit on the platforms — over a railway cutting or
+    underground — where the nearest Street View panorama is often unrelated
+    to the station (e.g. RER B Cité Universitaire: a park, 114 m from its
+    entrance on Boulevard des Maréchaux). Point instead at the entrance
+    nearest to the stop point, among those of its stop area usable to enter.
+
+    Only stations have entrances: bus and tram stops, already on the street,
+    are left null rather than repeating their geometry (which would grow the
+    tiles by ~10% for no information), and the frontend falls back to the
+    stop point. Two numeric columns rather than a second point geometry:
+    GeoJSON allows one geometry per feature, and vector tile attributes
+    only hold plain values.
+    """
+    points = (
+        stops[["stop_id", "geometry"]]
+        .assign(zdaid=stop_area_ids(stops, df_stop_relations))
+        .dropna(subset=["zdaid"])
+        .drop_duplicates("stop_id")
+        .to_crs(epsg=2154)
+    )
+    entrances = entry_entrances(df_entrances, df_entrance_relations)
+
+    pairs = points.merge(entrances, on="zdaid", suffixes=("", "_entrance"))
+    distance = gpd.GeoSeries(pairs["geometry"]).distance(gpd.GeoSeries(pairs["geometry_entrance"]))
+    nearest = pairs.loc[distance.groupby(pairs["stop_id"]).idxmin()]
+
+    location = gpd.GeoSeries(nearest["geometry_entrance"].values, crs="EPSG:2154").to_crs(epsg=4326)
+    coordinates = pd.DataFrame(
+        {"streetview_lng": location.x.values, "streetview_lat": location.y.values},
+        index=nearest["stop_id"].values,
+    )
+    return stops.join(coordinates, on="stop_id")
+
+
 def join_line_accessibility(
     lines: gpd.GeoDataFrame,
     stops: gpd.GeoDataFrame,
@@ -380,6 +497,9 @@ def main():
     gdf_stops = gpd.read_file(RAW_STOPS)
     df_accessibility_bus = pd.read_csv(RAW_ACCESSIBILITY_BUS, sep=";")
     df_accessibility_train = pd.read_csv(RAW_ACCESSIBILITY_TRAIN, sep=";")
+    df_entrances = pd.read_csv(RAW_ENTRANCES, sep=";")
+    df_entrance_relations = pd.read_csv(RAW_ENTRANCE_RELATIONS, sep=";")
+    df_stop_relations = pd.read_csv(RAW_STOP_RELATIONS, sep=";", usecols=["zdaid", "arrid"])
 
     print("Preparing stops...")
     accessibility_bus = prepare_accessibility_bus(df_accessibility_bus, gdf_stops)
@@ -408,6 +528,8 @@ def main():
         accessibility_cableway,
         accessibility_funicular,
     )
+    stops = drop_unrated_ter_platforms(stops)
+    stops = add_streetview_coordinates(stops, df_entrances, df_entrance_relations, df_stop_relations)
     stops.to_file(OUT_STOPS, driver="GeoJSON")
     print(f"  Written {len(stops)} stops → {OUT_STOPS}")
 

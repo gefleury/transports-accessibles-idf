@@ -128,6 +128,190 @@ def test_selecting_line_shows_it_for_a_mode_disabled_by_default(page):
     expect(all_box).not_to_be_checked()
 
 
+def _stop_popup(page, stops, cursor):
+    """Render the stop popup for synthetic stop points, without the map.
+
+    Each stop is (stop_name, stop_id, lat, lng) or, for a station with an
+    entrance, (stop_name, stop_id, lat, lng, entrance_lat, entrance_lng).
+    The cursor is a (lat, lng). Returns, per stop name heading: its Street
+    View link's "lat,lng" (None if no link), and whether it shows the
+    greyed-out "Zoomez" chip instead.
+    """
+    return page.evaluate(
+        """([stops, cursor]) => {
+          const features = stops.map(([name, id, lat, lng, eLat, eLng]) => ({
+            properties: {stop_name: name, stop_id: id, mode: 'Bus', route_long_name: '1',
+                         ArRAccessibility: 'true', streetview_lat: eLat ?? null, streetview_lng: eLng ?? null},
+            geometry: {coordinates: [lng, lat]},
+          }));
+          const div = document.createElement('div');
+          div.innerHTML = stopPopupHtml(features, map.project([cursor[1], cursor[0]]));
+          return [...div.querySelectorAll('.stop-title')].map(t => ({
+            link: t.querySelector('a.streetview-link')?.href.match(/viewpoint=([^&]+)/)[1] ?? null,
+            zoomHint: t.querySelector('.streetview-link.is-disabled') !== null
+              && t.textContent.includes('Zoomez'),
+          }));
+        }""",
+        [stops, cursor],
+    )
+
+
+def test_streetview_link_policy(page):
+    # 1e-4° of latitude ≈ 11 m.
+    lat, lng = 48.86, 2.35
+
+    # A single stop point (reported twice, as across a tile boundary): link
+    # at the point itself.
+    single = _stop_popup(page, [("A", "a1", lat, lng), ("A", "a1", lat, lng)], (lat, lng))
+    assert single == [{"link": f"{lat:.6f},{lng:.6f}", "zoomHint": False}]
+
+    # Two points ~18 m apart (e.g. facing tram platforms, Porte d'Ivry): one
+    # link, at the point nearest the cursor — never at the cursor itself.
+    north = lat + 1.6e-4
+    close = _stop_popup(page, [("B", "b1", lat, lng), ("B", "b2", north, lng)], (north + 1e-5, lng))
+    assert close == [{"link": f"{north:.6f},{lng:.6f}", "zoomHint": False}]
+
+    # Two points ~22 m apart (e.g. a bus stop's two directions, Cottages):
+    # no link, a greyed-out chip asking to zoom in instead.
+    far = _stop_popup(page, [("C", "c1", lat, lng), ("C", "c2", lat + 2.0e-4, lng)], (lat, lng))
+    assert far == [{"link": None, "zoomHint": True}]
+
+    # A station with an entrance (e.g. RER B Cité Universitaire): link at
+    # the entrance, not at the platforms; the rule applies per heading.
+    entrance = (lat + 1e-3, lng + 1e-3)
+    mixed = _stop_popup(
+        page, [("D", "d1", lat, lng, *entrance), ("C", "c1", lat, lng), ("C", "c2", lat + 2.0e-4, lng)], (lat, lng)
+    )
+    assert mixed == [
+        {"link": f"{entrance[0]:.6f},{entrance[1]:.6f}", "zoomHint": False},
+        {"link": None, "zoomHint": True},
+    ]
+
+
+def test_stop_popup_lists_each_line_once_with_all_accessibility_statuses(page):
+    """Several stop points with the same name, mode and line (a line's two
+    directions or platforms, caught together at low zoom) must share one
+    row, listing every distinct accessibility status (accessible, partial…)
+    with a note when they differ. The popup used to keep only the first
+    status found, hiding e.g. one direction's status at Cottages (bus 1).
+
+    Reads the popup's data-* attributes, not its text, so rewording or
+    reordering the popup doesn't break the test.
+    """
+    stops = [
+        # (stop_name, stop_id, mode, line, accessibility status)
+        ("Cottages", "c1", "Bus", "1", "partial"),
+        ("Cottages", "c2", "Bus", "1", "false"),
+        ("Châtelet", "m1", "Métro", "14", "true"),
+        ("Châtelet", "m2", "Métro", "14", "true"),
+    ]
+    headings = page.evaluate(
+        """(stops) => {
+          const c = map.getCenter();
+          const features = stops.map(([name, id, mode, line, status]) => ({
+            properties: {stop_name: name, stop_id: id, mode, route_long_name: line, ArRAccessibility: status},
+            geometry: {coordinates: [c.lng, c.lat]},
+          }));
+          hoverPopup.setLngLat(c).setHTML(stopPopupHtml(features, map.project(c))).addTo(map);
+          const popup = document.querySelector('.maplibregl-popup-content');
+          return {
+            rows: [...popup.querySelectorAll('[data-line]')].map(row => ({
+              statuses: [...row.querySelectorAll('[data-accessibility]')].map(b => b.dataset.accessibility).sort(),
+              hasNote: row.querySelector('.status-note') !== null,
+            })),
+            focused: document.activeElement.tagName,
+          };
+        }""",
+        stops,
+    )
+    cottages, chatelet = headings["rows"]
+    assert cottages == {"statuses": ["false", "partial"], "hasNote": True}
+    assert chatelet == {"statuses": ["true"], "hasNote": False}
+
+    # Regression: MapLibre focuses a popup's first link when it opens
+    # (focusAfterOpen), which showed the Street View chip in its focus style.
+    assert headings["focused"] == "BODY", "Opening the popup should not move the focus"
+
+
+def _wait_for_map_idle(page):
+    page.wait_for_function("map.areTilesLoaded() && !map.isMoving()", timeout=60_000)
+
+
+def test_highlight_does_not_reprocess_tiles(page):
+    """Highlighting must only use feature-state and constant paint values
+    (site/highlight.js). A filter or data-driven paint change instead makes
+    MapLibre reprocess every loaded tile on each selection: the highlight
+    lagged, and flickered as the reprocessing briefly emptied the features
+    under the cursor.
+    """
+    _wait_for_map_idle(page)
+    tile_loads = page.evaluate(
+        """() => new Promise(resolve => {
+          // Count tile (re)loads: with the map idle, any is a reprocessing.
+          const source = map.getSource('transports');
+          const loadTile = source.loadTile.bind(source);
+          let loads = 0;
+          source.loadTile = (...args) => { loads++; return loadTile(...args); };
+          const line = map.queryRenderedFeatures({layers: ['lines']})[0].properties.route_id;
+          setHighlight([line], []);
+          setHighlight([], []);
+          map.triggerRepaint();  // reprocessing starts on the next frame
+          setTimeout(() => resolve(loads), 1000);
+        })"""
+    )
+    assert tile_loads == 0, f"Highlighting reloaded {tile_loads} tile(s)"
+
+
+def test_click_selects_and_hover_only_previews(page):
+    """Hover previews a stop's popup (with a how-to hint) without
+    highlighting; a click selects it (highlight + "Revenir à la vue
+    d'ensemble" button), and hovering elsewhere then leaves the selection
+    alone until the button clears it. The hint stops once the user has
+    selected something.
+    """
+    _wait_for_map_idle(page)
+    spots = page.evaluate(
+        """() => {
+          const r = map.getCanvas().getBoundingClientRect();
+          const toPage = ([x, y]) => [x + r.left, y + r.top];
+          const stop = map.queryRenderedFeatures({layers: ['stops']})[0];
+          let empty = null;  // a spot with no line or stop, clear of the notice and button
+          for (let x = 20; x < r.width - 20 && !empty; x += 10)
+            for (let y = 80; y < r.height - 80 && !empty; y += 10)
+              if (!map.queryRenderedFeatures([x, y], {layers: ['stops', 'lines']}).length) empty = [x, y];
+          const p = map.project(stop.geometry.coordinates);
+          return {stop: toPage([p.x, p.y]), empty: toPage(empty)};
+        }"""
+    )
+
+    def state():
+        return page.evaluate(
+            """() => ({
+              popup: hoverPopup.isOpen(),
+              highlighted: highlighted.lineIds.length > 0,
+              button: !document.querySelector('.deselect-button').hidden,
+              hint: !document.querySelector('.map-notice').hidden
+                && document.querySelector('.map-notice').textContent.includes('Astuce'),
+            })"""
+        )
+
+    page.mouse.move(*spots["stop"])
+    assert state() == {"popup": True, "highlighted": False, "button": False, "hint": True}
+
+    page.mouse.click(*spots["stop"])
+    selected = {"popup": True, "highlighted": True, "button": True, "hint": False}
+    assert state() == selected
+
+    page.mouse.move(*spots["empty"])
+    assert state() == selected, "Hovering elsewhere should leave the selection alone"
+
+    page.locator(".deselect-button").click()
+    assert state() == {"popup": False, "highlighted": False, "button": False, "hint": False}
+
+    page.mouse.move(*spots["stop"])
+    assert state()["hint"] is False, "The hint should be gone once the user has selected"
+
+
 def test_show_all_checkbox_syncs_with_line_selection(page):
     # "Afficher toutes les lignes" must never stay checked once it no longer
     # reflects reality, and re-checking it must restore the literal "all"

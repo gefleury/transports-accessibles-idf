@@ -48,10 +48,14 @@ Et ouvrir http://localhost:8123
 
 Données fournies par [Île-de-France Mobilités](https://data.iledefrance-mobilites.fr) en open data ([licences](https://data.iledefrance-mobilites.fr/pages/licences/)):
 
-- [Tracés des lignes](https://data.iledefrance-mobilites.fr/explore/dataset/traces-des-lignes-de-transport-en-commun-idfm/information/)
-- [Arrêts des lignes](https://data.iledefrance-mobilites.fr/explore/dataset/arrets-lignes/information)
-- [Accessibilité en gare](https://data.iledefrance-mobilites.fr/explore/dataset/accessibilite-en-gare/information/)
-- [Accessibilité des arrêts bus](https://data.iledefrance-mobilites.fr/explore/dataset/sdap-arrets-associes/information/)
+- [Tracés des lignes](https://data.iledefrance-mobilites.fr/explore/dataset/traces-des-lignes-de-transport-en-commun-idfm/information/) (ODbL)
+- [Arrêts des lignes](https://data.iledefrance-mobilites.fr/explore/dataset/arrets-lignes/information) (ODbL)
+- [Accessibilité en gare](https://data.iledefrance-mobilites.fr/explore/dataset/accessibilite-en-gare/information/) (Licence Ouverte)
+- [Accessibilité des arrêts bus](https://data.iledefrance-mobilites.fr/explore/dataset/sdap-arrets-associes/information/) (ODbL)
+- Entrées des gares et stations de métro (Licence Ouverte) :
+  - [Entrées des gares et stations de métro](https://data.iledefrance-mobilites.fr/explore/dataset/acces/information/)
+  - [Rattachement des entrées à leur gare ou station](https://data.iledefrance-mobilites.fr/explore/dataset/relations-acces/information/)
+  - [Rattachement des quais et arrêts à leur gare ou station](https://data.iledefrance-mobilites.fr/explore/dataset/relations/information/)
 
 ## Licence
 

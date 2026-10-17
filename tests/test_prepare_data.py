@@ -22,16 +22,34 @@ import geopandas as gpd
 import pandas as pd
 import pytest
 
+from shapely.geometry import Point
+
 from prepare_data import (
     OUT_LINES,
     OUT_STOPS,
     RAW_ACCESSIBILITY_BUS,
     RAW_ACCESSIBILITY_TRAIN,
+    RAW_ENTRANCE_RELATIONS,
+    RAW_ENTRANCES,
+    RAW_STOP_RELATIONS,
     RAW_STOPS,
+    STOP_AREA_PREFIX,
+    add_streetview_coordinates,
+    drop_unrated_ter_platforms,
     prepare_accessibility_metro,
 )
 
-DATA_AVAILABLE = RAW_STOPS.exists() and RAW_ACCESSIBILITY_BUS.exists() and RAW_ACCESSIBILITY_TRAIN.exists()
+DATA_AVAILABLE = all(
+    path.exists()
+    for path in (
+        RAW_STOPS,
+        RAW_ACCESSIBILITY_BUS,
+        RAW_ACCESSIBILITY_TRAIN,
+        RAW_ENTRANCES,
+        RAW_ENTRANCE_RELATIONS,
+        RAW_STOP_RELATIONS,
+    )
+)
 skip_if_no_data = pytest.mark.skipif(
     not DATA_AVAILABLE, reason="data/ files not present — skipping integration tests"
 )
@@ -93,6 +111,21 @@ def test_train_accessibility_required_columns(df_accessibility_train):
     required = {"stop_point_id", "accessibility_level_id"}
     missing = required - set(df_accessibility_train.columns)
     assert not missing, f"accessibilite-en-gare.csv is missing columns: {missing}"
+
+
+@skip_if_no_data
+@pytest.mark.parametrize(
+    "path, required",
+    [
+        (RAW_ENTRANCES, {"accid", "accisentry", "accxespg2154", "accyespg2154"}),
+        (RAW_ENTRANCE_RELATIONS, {"accid", "zdaid"}),
+        (RAW_STOP_RELATIONS, {"arrid", "zdaid"}),
+    ],
+    ids=lambda v: v.name if hasattr(v, "name") else "",
+)
+def test_entrance_files_required_columns(path, required):
+    missing = required - set(pd.read_csv(path, sep=";", nrows=0).columns)
+    assert not missing, f"{path.name} is missing columns: {missing}"
 
 
 @skip_if_no_data
@@ -184,6 +217,87 @@ def test_metro_lines_are_all_known(gdf_stops):
         warnings.warn(f"Unknown metro line(s) in data, review prepare_accessibility_metro: {unknown}")
 
 
+@skip_if_no_data
+def test_train_accessibility_rates_stations_only(df_accessibility_train):
+    """accessibilite-en-gare.csv has only ever rated stop areas ("zones
+    d'arrêt"), i.e. stations ("gares"), never boarding areas ("zones
+    d'embarquement"), i.e. platforms ("quais") — drop_unrated_ter_platforms
+    relies on that to treat TER platforms as redundant. Warns (doesn't fail
+    — the CI workflow turns this into a GitHub issue) if platform-level
+    ratings appear, so the popup and drop_unrated_ter_platforms can be revisited
+    to make use of them. Rated platforms are already kept, so nothing is
+    lost meanwhile.
+    """
+    stop_ids = df_accessibility_train["stop_point_id"].str.replace("stop_point:", "", regex=False)
+    platforms = stop_ids[~stop_ids.str.startswith(STOP_AREA_PREFIX)]
+    if not platforms.empty:
+        warnings.warn(
+            f"Platform-level accessibility in train data, review drop_unrated_ter_platforms: "
+            f"{len(platforms)} platform(s), e.g. {platforms.iloc[0]}"
+        )
+
+
+# ── drop_unrated_ter_platforms on a synthetic stops table ─────────────────────
+
+
+def test_drop_unrated_ter_platforms():
+    # Lambert-93 coordinates (meters), so distances are easy to read.
+    station = f"{STOP_AREA_PREFIX}1"
+    rows = [
+        # (stop_id, route id, mode, status, x offset from the station in m)
+        (station, "L1", "TER", "false", 0),
+        ("near-unrated", "L1", "TER", "unknown", 50),  # dropped
+        ("near-rated", "L1", "TER", "partial", 50),  # kept: platform-level data
+        ("far-unrated", "L1", "TER", "unknown", 500),  # kept: other station
+        ("other-line", "L2", "TER", "unknown", 50),  # kept: no station on L2
+        ("rer-platform", "L1", "RER", "unknown", 50),  # kept: not TER
+    ]
+    stops = gpd.GeoDataFrame(
+        [{"stop_id": s, "id": r, "mode": m, "ArRAccessibility": a} for s, r, m, a, _ in rows],
+        geometry=[Point(650_000 + dx, 6_860_000) for *_, dx in rows],
+        crs="EPSG:2154",
+    )
+    kept = set(drop_unrated_ter_platforms(stops)["stop_id"])
+    assert kept == {station, "near-rated", "far-unrated", "other-line", "rer-platform"}
+
+
+# ── add_streetview_coordinates on synthetic tables ──────────────────────────
+
+
+def test_add_streetview_coordinates():
+    # Lambert-93 coordinates (meters), so distances are easy to read.
+    x0, y0 = 650_000, 6_860_000
+    station = f"{STOP_AREA_PREFIX}1"
+    stops = gpd.GeoDataFrame(
+        {"stop_id": [station, "IDFM:500", "IDFM:900"]},  # station, metro platform, bus stop
+        geometry=[Point(x0, y0), Point(x0, y0 + 1000), Point(x0, y0 + 2000)],
+        crs="EPSG:2154",
+    )
+    entrances = pd.DataFrame(
+        # (accid, accisentry, x offset from its stop in m, y)
+        [
+            (1, False, 10, y0),  # station: nearest, but exit-only → skipped
+            (2, True, 60, y0),  # station: nearest entry → chosen
+            (3, True, 80, y0),  # station: farther entry
+            (4, True, 30, y0 + 1000),  # metro platform's only entrance
+        ],
+        columns=["accid", "accisentry", "dx", "accyespg2154"],
+    ).assign(accxespg2154=lambda df: x0 + df["dx"])
+    entrance_relations = pd.DataFrame({"accid": [1, 2, 3, 4], "zdaid": [1, 1, 1, 2]})
+    stop_relations = pd.DataFrame({"arrid": [500], "zdaid": [2]})  # bus stop 900: no stop area
+
+    result = add_streetview_coordinates(stops, entrances, entrance_relations, stop_relations)
+
+    expected = gpd.GeoSeries(
+        [Point(x0 + 60, y0), Point(x0 + 30, y0 + 1000)], crs="EPSG:2154"
+    ).to_crs(epsg=4326)
+    assert result["streetview_lng"].iloc[:2].tolist() == pytest.approx(expected.x.tolist())
+    assert result["streetview_lat"].iloc[:2].tolist() == pytest.approx(expected.y.tolist())
+    assert result[["streetview_lng", "streetview_lat"]].iloc[2].isna().all(), (
+        "A stop without entrances should be left null (the frontend uses the stop itself)"
+    )
+
+
 # ── End-to-end tests on the processed GeoJSON files ─────────────────────────
 # These catch bugs in join_accessibility, join_stops_to_lines, and
 # join_line_accessibility that individual prepare_* tests would miss.
@@ -230,6 +344,40 @@ def test_processed_chatelet_line_14_is_accessible(processed_stops):
     assert not rows.empty, "Châtelet on line 14 not found in processed stops"
     assert (rows["ArRAccessibility"] == "true").all(), (
         "Châtelet on line 14 should be 'true' in processed stops"
+    )
+
+
+@skip_if_no_processed
+@pytest.mark.parametrize("mode", ["Métro", "RER", "Transilien"])
+def test_processed_stations_have_streetview_entrance(processed_stops, mode):
+    """Nearly every metro/RER/Transilien stop point has an entrance to point
+    Street View at (100%/99%/100% when written). A sharp drop means the join
+    in add_streetview_coordinates broke (e.g. IDFM changed an id format),
+    silently sending links back to the platforms.
+    No TER case: IDFM barely lists entrances outside Île-de-France (TER
+    coverage ~50%), and TER stations join exactly like RER/Transilien ones.
+    """
+    points = processed_stops[processed_stops["mode"] == mode].drop_duplicates("stop_id")
+    coverage = points["streetview_lng"].notna().mean()
+    assert coverage >= 0.95, f"Only {coverage:.0%} of {mode} stop points have an entrance"
+
+
+@skip_if_no_processed
+def test_processed_ter_termini_show_their_station_only(processed_stops):
+    """Paris termini TER platforms ("Paris Montparnasse", unrated) are named
+    differently from their station ("Gare Montparnasse", rated): only the station
+    must remain, checking drop_unrated_ter_platforms matches on line + distance,
+    not name, on real data.
+    """
+    ter = processed_stops[
+        (processed_stops["mode"] == "TER")
+        & (processed_stops["route_long_name"] == "TER Centre - Val de Loire")
+    ]
+    assert not ter.empty, "TER Centre - Val de Loire not found — line name may have changed"
+    names = set(ter["stop_name"])
+    assert "Gare Montparnasse" in names, "Gare Montparnasse missing from TER Centre - Val de Loire"
+    assert "Paris Montparnasse" not in names, (
+        "Unrated 'Paris Montparnasse' TER platforms should be dropped in favor of 'Gare Montparnasse'"
     )
 
 

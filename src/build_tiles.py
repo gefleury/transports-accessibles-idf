@@ -69,6 +69,8 @@ STOPS_ATTRIBUTES = [
     "mode",
     "ArRAccessibility",
     "nom_commune",
+    "streetview_lng",
+    "streetview_lat",
 ]
 
 # One tiling specification per tile layer.
