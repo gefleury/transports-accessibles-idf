@@ -1,5 +1,5 @@
-// Highlight of the hovered or pinned line(s)/stop on the map (loaded after
-// app.js, whose base layers, colors and `map` it builds on).
+// Highlight of the selected line(s)/stop on the map.
+// Uses: map, LINES_LAYER, STOPS_LAYER, lineColor, stopColor (app.js).
 //
 // While something is highlighted, the highlighted lines and their stops stay
 // in full color (the lines thicker, on top), the hovered stop is enlarged
