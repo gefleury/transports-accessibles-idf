@@ -81,6 +81,8 @@ const HOVERED_STOP_LAYER = {
     "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 11, 7.5, 14, 11],
     "circle-stroke-width": 2,
     "circle-stroke-color": "#ffffff",
+    "circle-opacity": 1,
+    "circle-stroke-opacity": 1,
   },
 };
 
@@ -129,6 +131,13 @@ function setHighlight(lineIds, stopFeatures) {
     for (const id of lineIds) {
       map.setFeatureState({ source: "transports", sourceLayer, id }, { highlight: true });
     }
+  }
+  // setData is processed in the background, behind any tile reprocessing
+  // (e.g. a filter change clearing the selection): show/hide the stop through
+  // its opacity, which applies at once, rather than waiting for its data.
+  const stopOpacity = stopFeatures.length > 0 ? 1 : 0;
+  for (const property of ["circle-opacity", "circle-stroke-opacity"]) {
+    map.setPaintProperty(HOVERED_STOP_LAYER.id, property, stopOpacity);
   }
   map.getSource("hovered-stop").setData({
     type: "FeatureCollection",

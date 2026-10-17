@@ -1,7 +1,8 @@
 // Filter panel: accessibility and per-mode line filters, their state, and
 // how they filter the map's layers.
 // Uses: map, MODE_COLORS, ACCESS_COLORS, ACCESS_LABELS (app.js);
-// LINES_COPY_IDS, STOPS_COPY_IDS (highlight.js); updateMapNotice (popup.js).
+// LINES_COPY_IDS, STOPS_COPY_IDS (highlight.js); updateMapNotice,
+// selectionActive, clearSelection (popup.js).
 
 const ACCESS_DEFAULT = { "true": true, "partial": true, "false": false, "unknown": false };
 const ACCESS_COUNT_FIELD = {
@@ -93,6 +94,10 @@ function visibleRouteIds() {
 }
 
 function applyFilters() {
+  // A filter change is a new view of the map: drop any selection, which
+  // could otherwise stay highlighted (with its popup and "Revenir à la vue
+  // d'ensemble" button) although its line is no longer shown.
+  if (selectionActive) clearSelection();
   const ids = visibleRouteIds();
   const access = selectedAccess();
   // Base layers and their highlight copies (highlight.js) share filters.
