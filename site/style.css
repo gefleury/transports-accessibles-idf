@@ -183,7 +183,7 @@ body {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 20px 16px 4px;
+  padding: 12px 16px 4px;  /* top: same as #sidebar's top margin (desktop) */
   background: #fff;
   color: #555;
   font-size: 12px;
@@ -491,6 +491,11 @@ summary {
 
 #footer a {
   color: #2471a3;
+}
+
+/* Short name of the data provider, for narrow screens (see Mobile). */
+#footer .short-name {
+  display: none;
 }
 
 /* ── Content pages (Données / Guide de l'accessibilité / Contact) ───────── */
@@ -826,6 +831,17 @@ summary {
     padding: 12px 6px;
     font-size: 15px;
   }
+
+  /* More room for the map: no line above the map page's footer (#app is
+     the map page's body; content pages keep the line), no gap below the
+     map. */
+  #app ~ #footer::before {
+    display: none;
+  }
+
+  #map-wrap {
+    padding-bottom: 0;
+  }
 }
 
 /* Sidebar stacked above the map: the exact complement of the side-by-side
@@ -894,6 +910,19 @@ summary {
     max-height: calc(45vh - 42px);
     overflow-y: auto;
   }
+
+  #meta {
+    padding-top: 10px;
+  }
+
+  /* Keeps the footer on one line on small phones. */
+  #footer .full-name {
+    display: none;
+  }
+
+  #footer .short-name {
+    display: inline;
+  }
 }
 
 /* Tablets in landscape (e.g. iPad, Galaxy Tab): wide enough for the
@@ -919,10 +948,13 @@ summary {
   }
 }
 
-/* Landscape phones: side-by-side layout, but even narrower than tablets'. */
+/* Landscape phones: side-by-side layout, but even narrower than tablets'.
+   No bottom margin, so the sidebar still ends with the map (#map-wrap has
+   no bottom padding on mobile). */
 @media (max-width: 1024px) and (orientation: landscape) and (max-height: 500px) {
   #sidebar {
     width: 240px;
+    margin-bottom: 0;
   }
 }
 
