@@ -14,6 +14,7 @@ Run with:
     python -m pytest tests/test_site.py
 """
 
+from contextlib import contextmanager
 from functools import partial
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -55,8 +56,9 @@ def site_url():
     server.shutdown()
 
 
-@pytest.fixture
-def page(site_url):
+@contextmanager
+def _site_page(site_url, **page_options):
+    """The site, loaded and initialized in a headless Chromium page."""
     with sync_playwright() as playwright:
         # MapLibre needs WebGL; headless Chromium only provides it via
         # software rendering (SwiftShader), which requires this opt-in.
@@ -66,7 +68,7 @@ def page(site_url):
             args=["--enable-unsafe-swiftshader"],
             env={"WAYLAND_DISPLAY": "", "DISPLAY": ""},
         )
-        page = browser.new_page()
+        page = browser.new_page(**page_options)
         page.goto(site_url)
         # The stats line is filled at the very end of initialization, after
         # the tiles metadata and lines.json have been fetched, the sidebar
@@ -77,6 +79,19 @@ def page(site_url):
         )
         yield page
         browser.close()
+
+
+@pytest.fixture
+def page(site_url):
+    with _site_page(site_url) as page:
+        yield page
+
+
+@pytest.fixture
+def touch_page(site_url):
+    """A touch screen: taps fire touch events, as on a phone or tablet."""
+    with _site_page(site_url, has_touch=True) as page:
+        yield page
 
 
 def _line_count(page) -> int:
@@ -262,20 +277,16 @@ def test_highlight_does_not_reprocess_tiles(page):
     assert tile_loads == 0, f"Highlighting reloaded {tile_loads} tile(s)"
 
 
-def test_click_selects_and_hover_only_previews(page):
-    """Hover previews a stop's popup (with a how-to hint) without
-    highlighting; a click selects it (highlight + "Revenir à la vue
-    d'ensemble" button), and hovering elsewhere then leaves the selection
-    alone until the button clears it. The hint stops once the user has
-    selected something.
-    """
+def _stop_and_empty_spots(page):
+    """Page coordinates of a stop, and of a spot with no line or stop, clear
+    of the map notice and the "Revenir à la vue d'ensemble" button."""
     _wait_for_map_idle(page)
-    spots = page.evaluate(
+    return page.evaluate(
         """() => {
           const r = map.getCanvas().getBoundingClientRect();
           const toPage = ([x, y]) => [x + r.left, y + r.top];
           const stop = map.queryRenderedFeatures({layers: ['stops']})[0];
-          let empty = null;  // a spot with no line or stop, clear of the notice and button
+          let empty = null;
           for (let x = 20; x < r.width - 20 && !empty; x += 10)
             for (let y = 80; y < r.height - 80 && !empty; y += 10)
               if (!map.queryRenderedFeatures([x, y], {layers: ['stops', 'lines']}).length) empty = [x, y];
@@ -284,32 +295,69 @@ def test_click_selects_and_hover_only_previews(page):
         }"""
     )
 
-    def state():
-        return page.evaluate(
-            """() => ({
-              popup: hoverPopup.isOpen(),
-              highlighted: highlighted.lineIds.length > 0,
-              button: !document.querySelector('.deselect-button').hidden,
-              hint: !document.querySelector('.map-notice').hidden
-                && document.querySelector('.map-notice').textContent.includes('Astuce'),
-            })"""
-        )
+
+def _selection_state(page):
+    return page.evaluate(
+        """() => ({
+          popup: hoverPopup.isOpen(),
+          highlighted: highlighted.lineIds.length > 0,
+          button: !document.querySelector('.deselect-button').hidden,
+          hint: !document.querySelector('.map-notice').hidden
+            && document.querySelector('.map-notice').textContent.includes('Astuce'),
+        })"""
+    )
+
+
+# Popup only, with the how-to hint; selection (highlight + "Revenir à la vue
+# d'ensemble" button); nothing.
+PREVIEW = {"popup": True, "highlighted": False, "button": False, "hint": True}
+SELECTED = {"popup": True, "highlighted": True, "button": True, "hint": False}
+CLEARED = {"popup": False, "highlighted": False, "button": False, "hint": False}
+
+
+def test_click_selects_and_hover_only_previews(page):
+    """Hover previews a stop's popup without highlighting; a click selects
+    it, and hovering elsewhere then leaves the selection alone until the
+    "Revenir à la vue d'ensemble" button clears it. The hint stops once the
+    user has selected something.
+    """
+    spots = _stop_and_empty_spots(page)
 
     page.mouse.move(*spots["stop"])
-    assert state() == {"popup": True, "highlighted": False, "button": False, "hint": True}
+    assert _selection_state(page) == PREVIEW
 
     page.mouse.click(*spots["stop"])
-    selected = {"popup": True, "highlighted": True, "button": True, "hint": False}
-    assert state() == selected
+    assert _selection_state(page) == SELECTED
 
     page.mouse.move(*spots["empty"])
-    assert state() == selected, "Hovering elsewhere should leave the selection alone"
+    assert _selection_state(page) == SELECTED, "Hovering elsewhere should leave the selection alone"
 
     page.locator(".deselect-button").click()
-    assert state() == {"popup": False, "highlighted": False, "button": False, "hint": False}
+    assert _selection_state(page) == CLEARED
 
     page.mouse.move(*spots["stop"])
-    assert state()["hint"] is False, "The hint should be gone once the user has selected"
+    assert _selection_state(page)["hint"] is False, "The hint should be gone once the user has selected"
+
+
+def test_first_tap_previews_and_second_tap_selects(touch_page):
+    """A finger can't hover: its first tap on a stop previews it (Street View
+    link usable, hint inviting to tap again), a second one selects it, and a
+    tap on an empty spot clears it. On iOS, a tap used to fire a mousemove
+    that opened the hover popup — and Safari then dropped the click, so it
+    took two taps to select, and the Street View link was unusable before.
+    """
+    spots = _stop_and_empty_spots(touch_page)
+
+    touch_page.touchscreen.tap(*spots["stop"])
+    assert _selection_state(touch_page) == PREVIEW
+
+    # Two taps within 500 ms are MapLibre's double-tap zoom.
+    touch_page.wait_for_timeout(600)
+    touch_page.touchscreen.tap(*spots["stop"])
+    assert _selection_state(touch_page) == SELECTED
+
+    touch_page.touchscreen.tap(*spots["empty"])
+    assert _selection_state(touch_page) == CLEARED
 
 
 def test_show_all_checkbox_syncs_with_line_selection(page):
