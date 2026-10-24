@@ -54,7 +54,14 @@ const map = new maplibregl.Map({
   // detailed: Plan IGN,
   // https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/attenue.json
   style: "https://tiles.openfreemap.org/styles/positron",
+  // No rotation or tilt: easily triggered by accident (two-finger gestures
+  // on phones and touchpads, right-click drag), and of no use on this map.
+  dragRotate: false,
+  touchPitch: false,
 });
+// Pinch and arrow keys still zoom and pan, without rotating.
+map.touchZoomRotate.disableRotation();
+map.keyboard.disableRotation();
 
 // Zoom +/- buttons, usable with the mouse alone (no scroll/pinch needed).
 // showCompass: false keeps it to just zoom, no rotation control.
