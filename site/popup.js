@@ -34,16 +34,10 @@ for (const type of ["pointerdown", "pointermove"]) {
 
 // Notice at the top of the map: how to show stops when zoomed out, and how
 // to select — the latter only while hovering a line or stop, and until the
-// user has selected once (remembered in the browser; shown again if storage
-// is unavailable). Deselecting needs no hint: the "Revenir à la vue d'ensemble"
-// button says it.
-const SELECT_HINT_KEY = "hint-learned-select";
-function selectHintLearned() {
-  try { return localStorage.getItem(SELECT_HINT_KEY) === "1"; } catch { return false; }
-}
-function learnSelectHint() {
-  try { localStorage.setItem(SELECT_HINT_KEY, "1"); } catch { /* not remembered */ }
-}
+// user has selected once during this visit (not remembered across visits:
+// a hint missed or skipped once would then never come back). Deselecting
+// needs no hint: the "Revenir à la vue d'ensemble" button says it.
+let selectHintLearned = false;
 
 // Hidden until there's something to say — else an empty box shows while the
 // map loads.
@@ -53,18 +47,20 @@ mapNotice.setAttribute("role", "status");
 mapNotice.hidden = true;
 document.getElementById("map").appendChild(mapNotice);
 
+// data-hint: lets tests tell the messages apart without reading their wording.
 function updateMapNotice() {
-  const messages = [];
+  const messages = [];  // [hint id, text]
   if (selectedAccess().length > 0 && map.getZoom() < stopsMinzoom) {
-    messages.push("Zoomez pour afficher les arrêts");
+    messages.push(["zoom", "Zoomez pour afficher les arrêts"]);
   }
-  if (!selectionActive && hoverPopup.isOpen() && !selectHintLearned()) {
+  if (!selectionActive && hoverPopup.isOpen() && !selectHintLearned) {
     // A finger has already tapped once to open the popup.
-    const action = touchInput ? "cliquez \u00e0 nouveau" : "cliquez";
-    messages.push(`Astuce\u00a0: ${action} pour faire ressortir ${shownSubject.label}`);
+    const action = touchInput ? "Cliquez \u00e0 nouveau" : "Cliquez";
+    messages.push(["select", `${action} pour faire ressortir ${shownSubject.label}`]);
   }
   const html = messages
-    .map(m => `<div><svg width="16" height="16" aria-hidden="true"><use href="#icon-info" /></svg>${m}</div>`)
+    .map(([id, text]) => `<div data-hint="${id}">`
+      + `<svg width="19" height="19" aria-hidden="true"><use href="#icon-info" /></svg>${text}</div>`)
     .join("");
   if (mapNotice.innerHTML !== html) mapNotice.innerHTML = html;  // called on every mouse move
   mapNotice.hidden = messages.length === 0;
@@ -263,7 +259,7 @@ function select(features, point, lngLat) {
   } else {
     setHighlight([features[0].properties.route_id], []);
   }
-  learnSelectHint();
+  selectHintLearned = true;
   showPopup(features, point, lngLat, true);
   selectionActive = true;
   deselectButton.hidden = false;

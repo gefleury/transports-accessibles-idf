@@ -1002,7 +1002,8 @@ summary {
   z-index: 2;
   /* max-content: left: 50% alone would cap the width at half the map. */
   width: max-content;
-  max-width: calc(100% - 110px);
+  /* 48px each side: the zoom buttons take 39px (29px + 10px margin). */
+  max-width: calc(100% - 96px);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -1021,7 +1022,7 @@ summary {
 .map-notice > div {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 9px;
 }
 
 .map-notice svg {

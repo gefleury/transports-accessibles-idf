@@ -70,15 +70,19 @@ def _site_page(site_url, **page_options):
         )
         page = browser.new_page(**page_options)
         page.goto(site_url)
-        # The stats line is filled at the very end of initialization, after
-        # the tiles metadata and lines.json have been fetched, the sidebar
-        # built, and the filters applied.
-        page.wait_for_function(
-            "document.querySelector('#stats').textContent.includes('affichée')",
-            timeout=30_000,
-        )
+        _wait_for_init(page)
         yield page
         browser.close()
+
+
+def _wait_for_init(page):
+    # The stats line is filled at the very end of initialization, after the
+    # tiles metadata and lines.json have been fetched, the sidebar built, and
+    # the filters applied.
+    page.wait_for_function(
+        "document.querySelector('#stats').textContent.includes('affichée')",
+        timeout=30_000,
+    )
 
 
 @pytest.fixture
@@ -114,10 +118,7 @@ def test_page_initializes_without_js_errors(site_url):
         page.on("pageerror", lambda exc: errors.append(str(exc)))
 
         page.goto(site_url)
-        page.wait_for_function(
-            "document.querySelector('#stats').textContent.includes('affichée')",
-            timeout=30_000,
-        )
+        _wait_for_init(page)
         # One expander per transport mode, built from lines.json.
         assert page.locator("#modes details").count() == 8
         browser.close()
@@ -303,7 +304,7 @@ def _selection_state(page):
           highlighted: highlighted.lineIds.length > 0,
           button: !document.querySelector('.deselect-button').hidden,
           hint: !document.querySelector('.map-notice').hidden
-            && document.querySelector('.map-notice').textContent.includes('Astuce'),
+            && document.querySelector('.map-notice [data-hint="select"]') !== null,
         })"""
     )
 
@@ -319,7 +320,7 @@ def test_click_selects_and_hover_only_previews(page):
     """Hover previews a stop's popup without highlighting; a click selects
     it, and hovering elsewhere then leaves the selection alone until the
     "Revenir à la vue d'ensemble" button clears it. The hint stops once the
-    user has selected something.
+    user has selected something, until the next visit.
     """
     spots = _stop_and_empty_spots(page)
 
@@ -337,6 +338,11 @@ def test_click_selects_and_hover_only_previews(page):
 
     page.mouse.move(*spots["stop"])
     assert _selection_state(page)["hint"] is False, "The hint should be gone once the user has selected"
+
+    page.reload()
+    _wait_for_init(page)
+    page.mouse.move(*_stop_and_empty_spots(page)["stop"])
+    assert _selection_state(page)["hint"] is True, "The hint should be back on a new visit"
 
 
 def test_first_tap_previews_and_second_tap_selects(touch_page):
