@@ -331,6 +331,19 @@ summary {
   color: #888;
 }
 
+/* No option to choose (e.g. no line matching the filters). */
+.dropdown-toggle:disabled {
+  background: #f5f5f5;
+  cursor: default;
+}
+
+/* Shown in place of the options when a search matches none. */
+.no-results {
+  margin: 2px 0;
+  color: #888;
+  font-size: 12px;
+}
+
 .dropdown-panel {
   display: none;
   position: absolute;
@@ -339,7 +352,9 @@ summary {
   right: 0;
   z-index: 10;
   margin-top: 2px;
-  padding: 6px 8px;
+  /* Right: room for .dropdown-close (28px) + a 10px gap, so the search box
+     and options never run under it. */
+  padding: 6px 38px 6px 8px;
   background: #fff;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -348,6 +363,29 @@ summary {
 
 .dropdown.open .dropdown-panel {
   display: block;
+}
+
+/* In the panel's top-right corner, whatever the content — same look as the
+   pinned popup's close button. */
+.dropdown-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #555;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dropdown-close:hover,
+.dropdown-close:focus-visible {
+  background: rgba(0, 0, 0, 0.05);
 }
 
 /* ── Nav (banner "À propos" menu) ──────────────────────────────────────── */

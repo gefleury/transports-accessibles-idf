@@ -8,7 +8,7 @@
 // (index.html): app.js, sidebar.js, popup.js, highlight.js. While loading, a
 // script only uses what earlier ones define; anything from later ones is
 // used at run time (page load, user events).
-// Uses: buildSidebar, applyFilters, LINES (sidebar.js); addHighlightLayers,
+// Uses: buildSidebar, applyFilters, LINES, CITY_LABELS (sidebar.js); addHighlightLayers,
 // STOPS_COPY_IDS (highlight.js).
 
 const MODE_COLORS = {
@@ -147,8 +147,12 @@ map.on("load", async () => {
     for (const id of ["stops", ...STOPS_COPY_IDS]) map.setLayerZoomRange(id, stopsMinzoom, 24);
   }
 
-  const payload = await (await fetch("data/lines.json")).json();
+  // "no-cache": check with the server that the browser's copy is current
+  // (re-downloading it only if not) — a stale copy, kept by the browser
+  // after a data or code update, can lack fields the scripts now expect.
+  const payload = await (await fetch("data/lines.json", { cache: "no-cache" })).json();
   LINES = payload.lines;
+  CITY_LABELS = payload.cities;
   document.getElementById("updated").textContent =
     "Données mises à jour le " +
     new Date(payload.updated_on).toLocaleDateString("fr-FR");

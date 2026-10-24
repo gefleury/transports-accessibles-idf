@@ -14,6 +14,7 @@ Run with:
     python -m pytest tests/test_site.py
 """
 
+import re
 from contextlib import contextmanager
 from functools import partial
 from http.server import ThreadingHTTPServer
@@ -142,6 +143,127 @@ def test_selecting_line_shows_it_for_a_mode_disabled_by_default(page):
 
     expect(page.locator("#stats")).to_have_text(f"{before + 1} ligne(s) affichée(s)")
     expect(all_box).not_to_be_checked()
+
+
+def test_line_serves_cities_with_a_matching_stop_in_each(page):
+    # A line with an accessible stop in city A, inaccessible ones only in B.
+    served = page.evaluate(
+        """() => {
+          const line = {cities: {A: {true: 1}, B: {false: 2}}};
+          const serves = (access, cities) => lineServesCities(line, access, new Set(cities));
+          return [
+            serves(['true', 'partial'], []),          // no city selected
+            serves(['true', 'partial'], ['A']),
+            serves(['true', 'partial'], ['A', 'B']),  // no matching stop in B
+            serves(['true', 'false'], ['A', 'B']),
+            serves(['true', 'partial'], ['C']),       // doesn't go through C
+          ];
+        }"""
+    )
+    assert served == [True, True, False, True, False]
+
+
+def _shown_modes(page) -> dict:
+    """Mode → whether its "Afficher toutes les lignes" box is checked."""
+    return page.evaluate(
+        """() => Object.fromEntries([...document.querySelectorAll('#modes details')].map(d => [
+          d.querySelector('summary').textContent,
+          d.querySelector(':scope > label input').checked,
+        ]))"""
+    )
+
+
+def _shown_lines_missing_a_city(page, codes) -> list:
+    """Shown lines without a stop of the selected accessibility in one of
+    these cities (INSEE codes) — should be none."""
+    return page.evaluate(
+        """(codes) => visibleRouteIds()
+          .map(id => LINES.find(l => l.route_id === id))
+          .filter(l => !codes.every(c => selectedAccess().some(k => l.cities[c]?.[k])))
+          .map(l => l.route_long_name)""",
+        codes,
+    )
+
+
+def test_city_filter_shows_every_mode_and_lines_serving_all_cities(page):
+    """Selecting a city shows every mode's lines serving it, buses included;
+    a second city keeps only the lines serving both; clearing them restores
+    the default modes and lines."""
+    default_modes, default_count = _shown_modes(page), _line_count(page)
+    assert not default_modes["Bus"], "Bus is expected off by default"
+    cities = page.locator("#cities")
+    cities.locator(".dropdown-toggle").click()
+    paris = cities.get_by_role("checkbox", name="Paris (75)", exact=True)
+    saint_denis = cities.get_by_role("checkbox", name="Saint-Denis (93)", exact=True)
+
+    paris.check()
+    assert all(_shown_modes(page).values()), "Selecting a city should show every mode"
+    assert _shown_lines_missing_a_city(page, ["75056"]) == []
+    paris_count = _line_count(page)
+
+    saint_denis.check()
+    both_count = _line_count(page)
+    assert 0 < both_count < paris_count
+    assert _shown_lines_missing_a_city(page, ["75056", "93066"]) == []
+    assert "14" in page.evaluate(
+        "visibleRouteIds().map(id => LINES.find(l => l.route_id === id))"
+        ".filter(l => l.mode === 'Métro').map(l => l.route_long_name)"
+    ), "Metro 14 serves both Paris and Saint-Denis"
+
+    paris.uncheck()
+    saint_denis.uncheck()
+    assert _shown_modes(page) == default_modes
+    assert _line_count(page) == default_count
+
+
+def test_city_search_matches_word_starts(page):
+    cities = page.locator("#cities")
+    cities.locator(".dropdown-toggle").click()
+    search = cities.locator(".search")
+
+    def found(query):
+        search.fill(query)
+        return {t.strip() for t in cities.locator(".options label:visible").all_text_contents()}
+
+    # Case and accents ignored, from the start of a word only.
+    assert "Créteil (94)" in found("cre")
+    assert "Vaucresson (92)" not in found("cre")
+    assert "Le Kremlin-Bicêtre (94)" in found("kremlin")
+    assert "L'Haÿ-les-Roses (94)" in found("l hay")
+    assert "Saint-Maur-des-Fossés (94)" in found("saint maur")
+
+
+def test_ticking_a_searched_option_clears_the_search(page):
+    # Typing "Les Ul" then ticking Les Ulis used to leave the list showing
+    # only Les Ulis: the search had to be erased by hand to find another city.
+    cities = page.locator("#cities")
+    cities.locator(".dropdown-toggle").click()
+    search = cities.locator(".search")
+    options = cities.locator(".options label")
+
+    search.fill("Les Ul")
+    cities.get_by_role("checkbox", name="Les Ulis (91)", exact=True).check()
+
+    expect(search).to_have_value("")
+    expect(search).to_be_focused()
+    expect(cities.locator(".options label:visible")).to_have_count(options.count())
+    expect(cities.get_by_role("checkbox", name="Les Ulis (91)", exact=True)).to_be_checked()
+
+
+def test_dropdown_closes_with_its_button_or_escape(page):
+    cities = page.locator("#cities")
+    dropdown = cities.locator(".dropdown")
+    toggle = cities.locator(".dropdown-toggle")
+
+    toggle.click()
+    expect(dropdown).to_have_class(re.compile(r"\bopen\b"))
+    cities.get_by_role("button", name="Fermer").click()
+    expect(dropdown).not_to_have_class(re.compile(r"\bopen\b"))
+
+    toggle.click()
+    cities.locator(".search").fill("Les Ul")
+    page.keyboard.press("Escape")
+    expect(dropdown).not_to_have_class(re.compile(r"\bopen\b"))
 
 
 def _stop_popup(page, stops, cursor):

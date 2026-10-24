@@ -3,8 +3,9 @@
 Packaging step of the pipeline:
 - transports.pmtiles — vector tiles (layers `lines` and `stops`) served
   statically to the map;
-- lines.json — one record per transport line (name, mode, operator,
-  accessibility flags), used by the sidebar to build the filter widgets.
+- lines.json — one record per transport line (name, mode, accessibility
+  counts, overall and per city), plus the city labels, used
+  by the sidebar to build the filter widgets.
 
 Requires tippecanoe (https://github.com/felt/tippecanoe).
 Run from the repo root:
@@ -17,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections import Counter, defaultdict
 from datetime import date
 from pathlib import Path
 
@@ -30,7 +32,6 @@ LINES_JSON_ATTRIBUTES = [
     "route_id",
     "route_long_name",
     "mode",
-    "operatorname",
     "count_accessible",
     "count_partial",
     "count_inaccessible",
@@ -131,8 +132,37 @@ def build_layer(tippecanoe: str, spec: dict, out: Path) -> None:
     )
 
 
-def write_lines_json(src: Path, out: Path) -> None:
-    """Extract one sidebar record per line from the lines GeoJSON.
+def city_label(name: str, code_insee: str) -> str:
+    """A city as listed in the sidebar: its name and département, e.g.
+    "Orly (94)" — the département tells apart homonyms such as
+    Marolles-en-Brie (77) and Marolles-en-Brie (94)."""
+    return f"{name} ({code_insee[:2]})"
+
+
+def line_cities(stops: list[dict]) -> tuple[dict, dict]:
+    """Per-line stop counts by city and accessibility status, and city labels.
+
+    Takes the stops' GeoJSON properties. Returns {route id: {INSEE code:
+    {status: count}}}, with only non-zero counts, so the sidebar can tell
+    whether a line has a stop matching the selected accessibility in each
+    selected city; and {INSEE code: label}.
+    """
+    counts = defaultdict(lambda: defaultdict(Counter))
+    labels = {}
+    for stop in stops:
+        code = stop["code_insee"]
+        counts[stop["id"]][code][stop["ArRAccessibility"]] += 1
+        labels[code] = city_label(stop["nom_commune"], code)
+    per_line = {
+        line: {code: dict(statuses) for code, statuses in cities.items()}
+        for line, cities in counts.items()
+    }
+    return per_line, labels
+
+
+def write_lines_json(src: Path, stops_src: Path, out: Path) -> None:
+    """Extract one sidebar record per line from the lines GeoJSON, with its
+    stop counts per city from the stops GeoJSON.
 
     Lines with a null geometry cannot be drawn (tippecanoe skips them too),
     so they are excluded to keep the sidebar consistent with the map.
@@ -143,13 +173,18 @@ def write_lines_json(src: Path, out: Path) -> None:
     """
     with src.open() as f:
         features = json.load(f)["features"]
+    with stops_src.open() as f:
+        stops = [feat["properties"] for feat in json.load(f)["features"]]
+    cities_per_line, city_labels = line_cities(stops)
     records = [
         {attr: feat["properties"].get(attr) for attr in LINES_JSON_ATTRIBUTES}
+        | {"cities": cities_per_line.get(feat["properties"]["route_id"], {})}
         for feat in features
         if feat["geometry"] is not None
     ]
     payload = {
         "updated_on": date.fromtimestamp(src.stat().st_mtime).isoformat(),
+        "cities": city_labels,
         "lines": records,
     }
     with out.open("w") as f:
@@ -190,7 +225,7 @@ def main() -> None:
     size_mb = OUT_PATH.stat().st_size / 1e6
     print(f"wrote {OUT_PATH} ({size_mb:.1f} MB)")
 
-    write_lines_json(LINES_SRC, LINES_JSON_PATH)
+    write_lines_json(LINES_SRC, STOPS_SRC, LINES_JSON_PATH)
 
 
 if __name__ == "__main__":
