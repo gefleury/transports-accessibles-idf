@@ -8,7 +8,7 @@
 // (index.html): app.js, sidebar.js, popup.js, highlight.js. While loading, a
 // script only uses what earlier ones define; anything from later ones is
 // used at run time (page load, user events).
-// Uses: buildSidebar, applyFilters, LINES, CITY_LABELS (sidebar.js); addHighlightLayers,
+// Uses: buildSidebar, applyFilters, LINES, CITY_LABELS, CITY_BBOXES (sidebar.js); addHighlightLayers,
 // STOPS_COPY_IDS (highlight.js).
 
 const MODE_COLORS = {
@@ -45,10 +45,13 @@ protocol.add(tilesFile);
 // metadata at startup (single source of truth: build_tiles.py).
 let stopsMinzoom = 0;
 
+// The map's initial view, Paris — also where it goes back to when the city
+// filter is cleared (sidebar.js).
+const HOME_VIEW = { center: [2.3522, 48.8566], zoom: 10 };
+
 const map = new maplibregl.Map({
   container: "map",
-  center: [2.3522, 48.8566],
-  zoom: 10,
+  ...HOME_VIEW,
   // Basemap: light minimal style with labels in each place's local
   // language (French here) — free, no API key. Tried and rejected as too
   // detailed: Plan IGN,
@@ -153,6 +156,7 @@ map.on("load", async () => {
   const payload = await (await fetch("data/lines.json", { cache: "no-cache" })).json();
   LINES = payload.lines;
   CITY_LABELS = payload.cities;
+  CITY_BBOXES = payload.city_bboxes;
   document.getElementById("updated").textContent =
     "Données mises à jour le " +
     new Date(payload.updated_on).toLocaleDateString("fr-FR");

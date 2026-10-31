@@ -3,8 +3,8 @@
 Packaging step of the pipeline:
 - transports.pmtiles — vector tiles (layers `lines` and `stops`) served
   statically to the map;
-- lines.json — one record per transport line (name, mode, accessibility
-  counts, overall and per city), plus the city labels, used
+- lines.json — one record per transport line (name, mode, bounding box,
+  accessibility counts, overall and per city), plus the city labels, used
   by the sidebar to build the filter widgets.
 
 Requires tippecanoe (https://github.com/felt/tippecanoe).
@@ -160,9 +160,35 @@ def line_cities(stops: list[dict]) -> tuple[dict, dict]:
     return per_line, labels
 
 
+def bbox(points) -> list[float]:
+    """Bounding box of (lng, lat) points, [west, south, east, north]. 4
+    decimals: ~10 m, plenty for framing the map, and a smaller lines.json."""
+    lngs, lats = zip(*points)
+    return [round(v, 4) for v in (min(lngs), min(lats), max(lngs), max(lats))]
+
+
+def line_bbox(geometry: dict) -> list[float]:
+    """A line's bounding box: the map zooms to the lines serving the
+    selected cities."""
+    lines = geometry["coordinates"]
+    if geometry["type"] == "LineString":
+        lines = [lines]
+    return bbox(point for line in lines for point in line)
+
+
+def city_bboxes(stops: list[dict]) -> dict[str, list[float]]:
+    """Each city's bounding box, from its stops' GeoJSON features: the map
+    frames the selected cities themselves when no shown line serves them
+    (e.g. only stops of an accessibility left unticked)."""
+    points = defaultdict(list)
+    for stop in stops:
+        points[stop["properties"]["code_insee"]].append(stop["geometry"]["coordinates"])
+    return {code: bbox(city_points) for code, city_points in points.items()}
+
+
 def write_lines_json(src: Path, stops_src: Path, out: Path) -> None:
     """Extract one sidebar record per line from the lines GeoJSON, with its
-    stop counts per city from the stops GeoJSON.
+    bounding box, and its stop counts per city from the stops GeoJSON.
 
     Lines with a null geometry cannot be drawn (tippecanoe skips them too),
     so they are excluded to keep the sidebar consistent with the map.
@@ -174,17 +200,19 @@ def write_lines_json(src: Path, stops_src: Path, out: Path) -> None:
     with src.open() as f:
         features = json.load(f)["features"]
     with stops_src.open() as f:
-        stops = [feat["properties"] for feat in json.load(f)["features"]]
-    cities_per_line, city_labels = line_cities(stops)
+        stop_features = json.load(f)["features"]
+    cities_per_line, city_labels = line_cities([feat["properties"] for feat in stop_features])
     records = [
         {attr: feat["properties"].get(attr) for attr in LINES_JSON_ATTRIBUTES}
-        | {"cities": cities_per_line.get(feat["properties"]["route_id"], {})}
+        | {"bbox": line_bbox(feat["geometry"]),
+           "cities": cities_per_line.get(feat["properties"]["route_id"], {})}
         for feat in features
         if feat["geometry"] is not None
     ]
     payload = {
         "updated_on": date.fromtimestamp(src.stat().st_mtime).isoformat(),
         "cities": city_labels,
+        "city_bboxes": city_bboxes(stop_features),
         "lines": records,
     }
     with out.open("w") as f:

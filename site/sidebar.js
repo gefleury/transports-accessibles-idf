@@ -1,6 +1,6 @@
 // Filter panel: accessibility, city and per-mode line filters, their state,
 // and how they filter the map's layers.
-// Uses: map, MODE_COLORS, ACCESS_COLORS, ACCESS_LABELS (app.js);
+// Uses: map, HOME_VIEW, stopsMinzoom, MODE_COLORS, ACCESS_COLORS, ACCESS_LABELS (app.js);
 // LINES_COPY_IDS, STOPS_COPY_IDS (highlight.js); updateMapNotice,
 // selectionActive, clearSelection (popup.js).
 
@@ -55,6 +55,7 @@ const startsAWord = (text, query) => ` ${text}`.includes(` ${query}`);
 // ── State ────────────────────────────────────────────────────────────────────
 let LINES = [];  // records from lines.json
 let CITY_LABELS = {};  // INSEE code → "Name (département)", from lines.json
+let CITY_BBOXES = {};  // INSEE code → its stops' bounding box, from lines.json
 const accessState = { ...ACCESS_DEFAULT };
 const selectedCities = new Set();  // INSEE codes
 let cityFilterActive = false;  // whether modes were switched on for it
@@ -387,6 +388,45 @@ function onCitiesChange() {
   }
   rebuildAllModeOptions();
   applyFilters();
+  zoomToCities();
+}
+
+// TER lines run far beyond Île-de-France (Normandy, the Loire valley):
+// framing them would zoom the map far out.
+const ZOOM_EXCLUDED_MODES = new Set(["TER"]);
+
+// The box ([west, south, east, north]) enclosing all the given ones.
+function unionBox(boxes) {
+  return boxes.reduce((a, b) => [
+    Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3]),
+  ]);
+}
+
+// Frame the map on the lines serving the selected cities — where one can
+// go from there, not just the cities — or back to the initial view without
+// any. TER lines stay shown, just left out of the framing, unless they're
+// all there is. Without any shown line (e.g. only stops of an accessibility
+// left unticked), the cities themselves: ticking it then shows their lines
+// in place. Never zoomed out so far that stops disappear (stopsMinzoom), as
+// a city's network can need on a phone, or for a big city: then centered on
+// the cities. Only city changes move the map — a zoom on every click tires.
+function zoomToCities() {
+  if (selectedCities.size === 0) {
+    map.easeTo(HOME_VIEW);
+    return;
+  }
+  const cities = unionBox([...selectedCities].map(code => CITY_BBOXES[code]));
+  const shown = new Set(visibleRouteIds());
+  const lines = LINES.filter(l => shown.has(l.route_id));
+  const framed = lines.filter(l => !ZOOM_EXCLUDED_MODES.has(l.mode));
+  const boxes = (framed.length ? framed : lines).map(l => l.bbox);
+  const [west, south, east, north] = boxes.length ? unionBox(boxes) : cities;
+  const camera = map.cameraForBounds([[west, south], [east, north]], { padding: 40, maxZoom: 14 });
+  if (camera.zoom < stopsMinzoom) {
+    camera.zoom = stopsMinzoom;
+    camera.center = [(cities[0] + cities[2]) / 2, (cities[1] + cities[3]) / 2];
+  }
+  map.easeTo(camera);
 }
 
 // Modes and their lines ──
@@ -469,6 +509,7 @@ function syncResetButton() {
 }
 
 function resetFilters() {
+  const hadCities = selectedCities.size > 0;
   Object.assign(accessState, ACCESS_DEFAULT);
   for (const [key, box] of Object.entries(accessBoxes)) box.checked = accessState[key];
   selectedCities.clear();
@@ -477,6 +518,7 @@ function resetFilters() {
   resetModes();
   rebuildAllModeOptions();
   applyFilters();
+  if (hadCities) zoomToCities();  // back home, as on removing the last city
 }
 
 // ── Page loading ─────────────────────────────────────────────────────────────
