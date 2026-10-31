@@ -265,25 +265,30 @@ function featuresAt(point) {
   return featuresNear(point, "lines", LINE_TOUCH_TOLERANCE_PX).slice(0, 1);
 }
 
-// What a popup is about: its stop names, or else its line. `key` tells
-// whether two taps hit the same stops or line (a finger rarely lands twice
-// on the same pixel, so the features caught can differ); `label` names it in
-// the select hint (updateMapNotice).
-function popupSubject(features) {
-  const stopNames = [...new Set(stopsAmong(features).map(f => f.properties.stop_name))].sort();
-  if (stopNames.length === 0) {
+// What a popup is about: its stops, or else its line. `key` tells whether two
+// taps aimed at the same stop point or line: the stop_id of the stop nearest
+// to the finger, not the stops caught (a finger rarely lands twice on the
+// same pixel, so they can differ) nor their name (the other direction of a
+// bus stop has the same name: tapping it must preview it, not select).
+// `label` names it in the select hint (updateMapNotice).
+function popupSubject(features, point) {
+  const stopFeatures = stopsAmong(features);
+  if (stopFeatures.length === 0) {
     return { key: features[0].properties.route_id, label: "cette ligne" };
   }
+  const nearest = stopFeatures.reduce((a, b) =>
+    (screenDistance(point, b) < screenDistance(point, a) ? b : a));
+  const stopNames = new Set(stopFeatures.map(f => f.properties.stop_name));
   return {
-    key: JSON.stringify(stopNames),
-    label: stopNames.length > 1 ? "ces arrêts et leurs lignes" : "cet arrêt et ses lignes",
+    key: `stop:${nearest.properties.stop_id}`,
+    label: stopNames.size > 1 ? "ces arrêts et leurs lignes" : "cet arrêt et ses lignes",
   };
 }
 
 let shownSubject = null;  // popupSubject() of the open popup
 function showPopup(features, point, lngLat, pinned) {
   const stopFeatures = stopsAmong(features);
-  shownSubject = popupSubject(features);
+  shownSubject = popupSubject(features, point);
   const html = stopFeatures.length ? stopPopupHtml(stopFeatures, point) : linePopupHtml(features[0]);
   hoverPopup.setLngLat(lngLat).setHTML(html).addTo(map);
   if (pinned) hoverPopup.addClassName("pinned");
@@ -301,9 +306,9 @@ function preview(features, point, lngLat) {
   updateMapNotice();
 }
 
-// Whether the open popup is about these features' stops or line.
-function isShown(features) {
-  return hoverPopup.isOpen() && shownSubject.key === popupSubject(features).key;
+// Whether the open popup is about the stop point or line tapped at `point`.
+function isShown(features, point) {
+  return hoverPopup.isOpen() && shownSubject.key === popupSubject(features, point).key;
 }
 
 // A stop highlights itself and every line serving it (all those listed in
@@ -348,12 +353,12 @@ map.on("mouseout", () => {
 });
 
 // Clicking a stop or line selects it; clicking an empty spot deselects. With
-// a finger, a first tap previews and a second one on the same stop or line
-// selects — but once a selection is active, a tap on another one selects it
-// at once.
+// a finger, a first tap previews and a second one on the same stop point or
+// line selects — but once a selection is active, a tap on another one
+// selects it at once.
 map.on("click", e => {
   const features = featuresAt(e.point);
   if (features.length === 0) clearSelection();
-  else if (touchInput && !selectionActive && !isShown(features)) preview(features, e.point, e.lngLat);
+  else if (touchInput && !selectionActive && !isShown(features, e.point)) preview(features, e.point, e.lngLat);
   else select(features, e.point, e.lngLat);
 });

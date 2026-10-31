@@ -540,6 +540,37 @@ def test_finger_catches_a_stop_or_line_tapped_beside_it(page):
     assert beside_line["finger"] == ["lines"], "A finger tap 6 px beside a line should catch it"
 
 
+def test_second_tap_selects_only_the_same_stop_point(page):
+    """A second tap selects only if aimed at the same stop point: the other
+    direction of a bus stop (same name, another stop_id) previews again."""
+    _wait_for_map_idle(page)
+    keys = page.evaluate(
+        """() => {
+          const {clientWidth: w, clientHeight: h} = map.getCanvas();
+          const byName = new Map();
+          for (const f of map.queryRenderedFeatures({layers: ['stops']})) {
+            const p = map.project(f.geometry.coordinates);
+            if (p.x < 0 || p.x > w || p.y < 0 || p.y > h) continue;
+            const {stop_name, stop_id} = f.properties;
+            if (!byName.has(stop_name)) byName.set(stop_name, new Map());
+            byName.get(stop_name).set(stop_id, p);
+          }
+          const key = p => popupSubject(featuresAt(p), p).key;
+          for (const points of byName.values()) {
+            const [a, b] = [...points.values()];
+            if (!b || a.dist(b) < 4) continue;
+            // 1 px from a's center, away from b: another spot of the same circle.
+            const away = a.add(a.sub(b).unit());
+            return {a: key(a), aAgain: key(away), b: key(b)};
+          }
+          return null;
+        }"""
+    )
+    assert keys, "No stop name with two distinct stop points on screen"
+    assert keys["a"] == keys["aAgain"], "Two taps on the same stop point should count as the same"
+    assert keys["a"] != keys["b"], "A same-name stop point with another stop_id should not count as the same"
+
+
 def test_first_tap_previews_and_second_tap_selects(touch_page):
     """A finger can't hover: its first tap on a stop previews it (Street View
     link usable, hint inviting to tap again), a second one selects it, and a
