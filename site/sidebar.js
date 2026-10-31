@@ -126,6 +126,7 @@ function applyFilters() {
   }
   shownLineCount = ids.length;
   updateStats();
+  syncResetButton();
 }
 
 let shownLineCount = 0;
@@ -158,10 +159,10 @@ document.addEventListener("keydown", e => {
 // also a search field narrowing the list. Shorter lists are click-only, so
 // a phone's keyboard doesn't pop up for nothing. With the keyboard, ↓/↑
 // move a highlight through the list and Enter picks the highlighted value
-// (the first one until moved). The search matches anywhere in a value, or only at the start of
-// a word with wordStart ("cre" finds Créteil, not Vaucresson); values
-// starting with the query come first ("paris": Paris before
-// Cormeilles-en-Parisis). Values are shown as labelOf(value). The list
+// (the first one until moved). The search matches anywhere in a value, or
+// only at the start of a word with wordStart ("cre" finds Créteil, not
+// Vaucresson); values starting with the query come first ("paris": Paris
+// before Cormeilles-en-Parisis). Values are shown as labelOf(value). The list
 // stays open after a pick, to pick several values seen in it, or closes
 // with closeOnPick, for values searched one at a time (cities). A
 // separator (HTML), if any, is shown between tags.
@@ -324,52 +325,15 @@ function makeMultiSelect(container, values, selectionSet, onChange,
   showTags();
 }
 
-// Direct references to each mode's row elements (mode names contain
-// spaces/accents, so they are not safe to use as DOM ids).
-const modeUI = {};  // mode → { row, box, linesDiv }
+// ── Filter panel ─────────────────────────────────────────────────────────────
+// One section per filter: build* creates its widgets once, from the state;
+// what redraws them is shared by the user's changes and the reset.
 
-// Show a mode's row as its state: ticked with its line list when on; greyed
-// out, with "Aucune ligne correspondante", when no line matches the filters
-// (its state is kept for when the filters change again).
-function syncModeRow(mode) {
-  const { row, box } = modeUI[mode];
-  box.checked = modeState[mode].on && !box.disabled;
-  row.classList.toggle("on", box.checked);
-}
+// Accessibility ──
 
-// Selecting a city asks what serves it: every mode is then switched on,
-// buses included (off by default only to keep the whole-region view
-// readable). Clearing the last city returns to the overview, as the hint
-// says: default modes, no line picked — lines picked from a city's list
-// make no sense without it. The checkboxes show the change.
-function onCitiesChange() {
-  const active = selectedCities.size > 0;
-  if (active !== cityFilterActive) {
-    cityFilterActive = active;
-    for (const [mode, st] of Object.entries(modeState)) {
-      st.on = active || MODE_DEFAULT_ON.has(mode);
-      if (!active) st.lines.clear();
-    }
-  }
-  for (const mode of Object.keys(MODE_COLORS)) rebuildModeOptions(mode);
-  applyFilters();
-}
+const accessBoxes = {};  // status → its checkbox
 
-// Rebuild the line list of one mode, pruning selections to the currently
-// available options — like Streamlit multiselects.
-function rebuildModeOptions(mode) {
-  const st = modeState[mode];
-  const names = [...new Set(availableLines(mode).map(l => l.route_long_name))]
-    .sort(collator.compare);
-  for (const name of st.lines) if (!names.includes(name)) st.lines.delete(name);
-  makeMultiSelect(modeUI[mode].linesDiv, names, st.lines, applyFilters,
-    { placeholder: "Filtrer par ligne (toutes par défaut)" });
-  modeUI[mode].row.classList.toggle("empty", names.length === 0);
-  modeUI[mode].box.disabled = names.length === 0;
-  syncModeRow(mode);
-}
-
-function buildSidebar() {
+function buildAccessFilter() {
   const accessDiv = document.getElementById("access");
   for (const [key, color] of Object.entries(ACCESS_COLORS)) {
     const label = document.createElement("label");
@@ -378,16 +342,22 @@ function buildSidebar() {
     box.checked = accessState[key];
     box.addEventListener("change", () => {
       accessState[key] = box.checked;
-      for (const mode of Object.keys(MODE_COLORS)) rebuildModeOptions(mode);
+      rebuildAllModeOptions();
       applyFilters();
     });
     label.appendChild(box);
     label.insertAdjacentHTML("beforeend",
       ` <span class="swatch" style="background:${color}"></span> ${ACCESS_LABELS[key]}`);
     accessDiv.appendChild(label);
+    accessBoxes[key] = box;
   }
+}
 
-  // Cities match from the start of a word, as typing is the way in (~1,300).
+// Cities ──
+
+// (Re)draws the city filter from selectedCities. Cities match from the
+// start of a word, as typing is the way in (~1,300).
+function buildCityFilter() {
   const cityCodes = Object.keys(CITY_LABELS)
     .sort((a, b) => collator.compare(CITY_LABELS[a], CITY_LABELS[b]));
   makeMultiSelect(document.getElementById("cities"), cityCodes, selectedCities, onCitiesChange, {
@@ -401,10 +371,34 @@ function buildSidebar() {
     // some lack it.
     separator: '<svg width="14" height="9"><use href="#icon-both-ways" /></svg>',
   });
+}
 
+// Selecting a city asks what serves it: every mode is then switched on,
+// buses included (off by default only to keep the whole-region view
+// readable). Clearing the last city returns to the overview, as the hint
+// says — lines picked from a city's list make no sense without it. The
+// checkboxes show the change.
+function onCitiesChange() {
+  const active = selectedCities.size > 0;
+  if (active !== cityFilterActive) {
+    cityFilterActive = active;
+    if (active) for (const st of Object.values(modeState)) st.on = true;
+    else resetModes();
+  }
+  rebuildAllModeOptions();
+  applyFilters();
+}
+
+// Modes and their lines ──
+
+// Direct references to each mode's row elements (mode names contain
+// spaces/accents, so they are not safe to use as DOM ids).
+const modeUI = {};  // mode → { row, box, linesDiv }
+
+// One row per mode: its checkbox, then its line list when it's on.
+function buildModeRows() {
   const modesDiv = document.getElementById("modes");
   for (const [mode, color] of Object.entries(MODE_COLORS)) {
-    // One row per mode: its checkbox, then its line list when it's on.
     const row = document.createElement("div");
     row.className = "mode";
     row.innerHTML =
@@ -421,5 +415,76 @@ function buildSidebar() {
     modeUI[mode] = { row, box, linesDiv: row.querySelector(".mode-lines") };
     modesDiv.appendChild(row);
   }
+}
+
+// Show a mode's row as its state: ticked with its line list when on; greyed
+// out, with "Aucune ligne correspondante", when no line matches the filters
+// (its state is kept for when the filters change again).
+function syncModeRow(mode) {
+  const { row, box } = modeUI[mode];
+  box.checked = modeState[mode].on && !box.disabled;
+  row.classList.toggle("on", box.checked);
+}
+
+// Rebuild the line list of one mode, pruning selections to the currently
+// available options — like Streamlit multiselects.
+function rebuildModeOptions(mode) {
+  const st = modeState[mode];
+  const names = [...new Set(availableLines(mode).map(l => l.route_long_name))]
+    .sort(collator.compare);
+  for (const name of st.lines) if (!names.includes(name)) st.lines.delete(name);
+  makeMultiSelect(modeUI[mode].linesDiv, names, st.lines, applyFilters,
+    { placeholder: "Filtrer par ligne (toutes par défaut)" });
+  modeUI[mode].row.classList.toggle("empty", names.length === 0);
+  modeUI[mode].box.disabled = names.length === 0;
+  syncModeRow(mode);
+}
+
+// Every mode's line list follows the accessibility and city filters.
+function rebuildAllModeOptions() {
   for (const mode of Object.keys(MODE_COLORS)) rebuildModeOptions(mode);
+}
+
+// Reset ──
+
+// The overview's modes: the default ones, no line picked.
+function resetModes() {
+  for (const [mode, st] of Object.entries(modeState)) {
+    st.on = MODE_DEFAULT_ON.has(mode);
+    st.lines.clear();
+  }
+}
+
+function filtersAtDefault() {
+  return Object.entries(ACCESS_DEFAULT).every(([key, on]) => accessState[key] === on)
+    && selectedCities.size === 0
+    && Object.entries(modeState).every(([mode, st]) =>
+      st.on === MODE_DEFAULT_ON.has(mode) && st.lines.size === 0);
+}
+
+// "Réinitialiser tous les filtres", at the bottom of the panel: shown only once a
+// filter differs from the default view (applyFilters keeps it in sync).
+function syncResetButton() {
+  document.getElementById("reset-filters").hidden = filtersAtDefault();
+}
+
+function resetFilters() {
+  Object.assign(accessState, ACCESS_DEFAULT);
+  for (const [key, box] of Object.entries(accessBoxes)) box.checked = accessState[key];
+  selectedCities.clear();
+  cityFilterActive = false;
+  buildCityFilter();
+  resetModes();
+  rebuildAllModeOptions();
+  applyFilters();
+}
+
+// ── Page loading ─────────────────────────────────────────────────────────────
+
+function buildSidebar() {
+  buildAccessFilter();
+  buildCityFilter();
+  buildModeRows();
+  rebuildAllModeOptions();
+  document.getElementById("reset-filters").addEventListener("click", resetFilters);
 }

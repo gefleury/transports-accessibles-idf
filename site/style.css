@@ -162,8 +162,47 @@ body {
   display: none;
 }
 
+/* A flex box, on both layouts: centers the chevron on the text (inline, it
+   would sit on the baseline, 1px high). */
+.sidebar-toggle-action-group {
+  display: flex;
+  align-items: center;
+}
+
 .sidebar-chevron {
   color: #555;
+}
+
+/* "Réinitialiser tous les filtres" (sidebar.js), closing the panel across
+   its width; shown only when a filter has changed. Grey as the panel's
+   other controls (blue is for what's selected): border as the multiselect
+   boxes, text as their ▾. */
+#reset-filters {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin: 14px 0 4px;
+  padding: 5px 12px;
+  border: 1px solid #ccc;
+  border-radius: 14px;
+  background: #fff;
+  color: #333;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Discreet hover: only the border darkens. */
+#reset-filters:hover,
+#reset-filters:focus-visible {
+  border-color: #999;
+}
+
+#reset-filters[hidden] {
+  display: none;  /* the flex display above would override [hidden]'s */
 }
 
 #sidebar-content {
@@ -997,15 +1036,8 @@ summary {
      ::after text instead of the desktop's hidden .sidebar-toggle-action
      span — the text is generated on .sidebar-toggle-action-group so it
      groups with the icon under the same space-between half as before,
-     and order:-1 keeps it reading before the icon despite being a ::after.
-     display:flex here (the shared CSS never sets it — desktop only ever
-     shows the single chevron child, no ordering needed there) is what
-     makes that order:-1 actually take effect. */
-  .sidebar-toggle-action-group {
-    display: flex;
-    align-items: center;
-  }
-
+     and order:-1 keeps it reading before the icon despite being a ::after
+     (the shared CSS makes the group a flex box, which order needs). */
   .sidebar-toggle-action-group::after {
     content: "Afficher";
     order: -1;

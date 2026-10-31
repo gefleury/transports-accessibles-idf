@@ -226,6 +226,32 @@ def test_city_filter_shows_every_mode_and_lines_serving_all_cities(page):
     assert page.evaluate("modeState.Bus.lines.size") == 0, "Clearing the cities should clear line picks"
 
 
+def test_reset_restores_the_default_view(page):
+    """"Réinitialiser" shows once a filter changes, and puts every filter
+    back: accessibility, cities, modes, line picks."""
+    reset = page.locator("#reset-filters")
+    default_modes, default_count = _shown_modes(page), _line_count(page)
+    expect(reset).to_be_hidden()
+
+    _add_city(page, "orly", "Orly (94)")
+    bus = page.locator("#modes .mode", has_text="Bus")
+    bus.locator(".multiselect-box").click()
+    bus.locator(".option").first.click()
+    page.keyboard.press("Escape")
+    partial = page.locator("#access label", has_text="Partiellement").locator("input")
+    partial.uncheck()
+    expect(reset).to_be_visible()
+
+    reset.click()
+    expect(reset).to_be_hidden()
+    expect(partial).to_be_checked()
+    assert page.locator("#cities .tag").count() == 0
+    assert _shown_modes(page) == default_modes
+    assert _line_count(page) == default_count
+    assert page.evaluate("modeState.Bus.lines.size") == 0
+    expect(page.locator("#sidebar")).to_have_attribute("open", ""), "The click mustn't fold the panel"
+
+
 def test_city_search_matches_word_starts(page):
     search = page.locator("#cities .multiselect-input")
 
