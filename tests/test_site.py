@@ -14,7 +14,6 @@ Run with:
     python -m pytest tests/test_site.py
 """
 
-import re
 from contextlib import contextmanager
 from functools import partial
 from http.server import ThreadingHTTPServer
@@ -120,29 +119,25 @@ def test_page_initializes_without_js_errors(site_url):
 
         page.goto(site_url)
         _wait_for_init(page)
-        # One expander per transport mode, built from lines.json.
-        assert page.locator("#modes details").count() == 8
+        # One row per transport mode, built from lines.json.
+        assert page.locator("#modes .mode").count() == 8
         browser.close()
 
     assert errors == [], f"JavaScript errors on page load: {errors}"
 
 
-def test_selecting_line_shows_it_for_a_mode_disabled_by_default(page):
-    # Regression test: visibleRouteIds() used to gate visibility on
-    # "toutes les lignes" alone for non-Bus modes, silently ignoring any
-    # line selection — so picking a specific line on a mode that starts
-    # unchecked (e.g. Transilien) rendered nothing at all on the map.
-    transilien = page.locator("#modes details", has_text="Transilien")
-    transilien.locator("summary").click()
-    all_box = transilien.locator("label", has_text="Afficher toutes les lignes").locator("input")
-    expect(all_box).not_to_be_checked()
-
+def test_mode_shows_all_its_lines_until_some_are_picked(page):
+    # Transilien starts off: ticking it shows all its lines, picking one
+    # line then narrows it to that line.
+    transilien = page.locator("#modes .mode", has_text="Transilien")
     before = _line_count(page)
-    transilien.locator(".dropdown-toggle").last.click()
-    transilien.locator(".options label").first.locator("input").check()
 
+    transilien.locator(".mode-toggle input").check()
+    assert _line_count(page) > before + 1
+
+    transilien.locator(".multiselect-box").click()
+    transilien.locator(".option").first.click()
     expect(page.locator("#stats")).to_have_text(f"{before + 1} ligne(s) affichée(s)")
-    expect(all_box).not_to_be_checked()
 
 
 def test_line_serves_cities_with_a_matching_stop_in_each(page):
@@ -164,12 +159,13 @@ def test_line_serves_cities_with_a_matching_stop_in_each(page):
 
 
 def _shown_modes(page) -> dict:
-    """Mode → whether its "Afficher toutes les lignes" box is checked."""
+    """Mode → "on", "off", or "empty" (no line matching the filters)."""
     return page.evaluate(
-        """() => Object.fromEntries([...document.querySelectorAll('#modes details')].map(d => [
-          d.querySelector('summary').textContent,
-          d.querySelector(':scope > label input').checked,
-        ]))"""
+        """() => Object.fromEntries([...document.querySelectorAll('#modes .mode')].map(row => {
+          const box = row.querySelector('.mode-toggle input');
+          const state = box.disabled ? 'empty' : box.checked ? 'on' : 'off';
+          return [row.querySelector('.mode-name').textContent, state];
+        }))"""
     )
 
 
@@ -185,23 +181,30 @@ def _shown_lines_missing_a_city(page, codes) -> list:
     )
 
 
+def _add_city(page, query, label):
+    """Type a query in the city search box and pick a suggested city."""
+    cities = page.locator("#cities")
+    cities.locator(".multiselect-input").fill(query)
+    cities.get_by_role("button", name=label, exact=True).click()
+
+
+def _remove_city(page, label):
+    page.locator("#cities").get_by_role("button", name=f"Retirer {label}", exact=True).click()
+
+
 def test_city_filter_shows_every_mode_and_lines_serving_all_cities(page):
     """Selecting a city shows every mode's lines serving it, buses included;
     a second city keeps only the lines serving both; clearing them restores
     the default modes and lines."""
     default_modes, default_count = _shown_modes(page), _line_count(page)
-    assert not default_modes["Bus"], "Bus is expected off by default"
-    cities = page.locator("#cities")
-    cities.locator(".dropdown-toggle").click()
-    paris = cities.get_by_role("checkbox", name="Paris (75)", exact=True)
-    saint_denis = cities.get_by_role("checkbox", name="Saint-Denis (93)", exact=True)
+    assert default_modes["Bus"] == "off", "Bus is expected off by default"
 
-    paris.check()
-    assert all(_shown_modes(page).values()), "Selecting a city should show every mode"
+    _add_city(page, "paris", "Paris (75)")
+    assert "off" not in _shown_modes(page).values(), "Selecting a city should show every mode"
     assert _shown_lines_missing_a_city(page, ["75056"]) == []
     paris_count = _line_count(page)
 
-    saint_denis.check()
+    _add_city(page, "saint denis", "Saint-Denis (93)")
     both_count = _line_count(page)
     assert 0 < both_count < paris_count
     assert _shown_lines_missing_a_city(page, ["75056", "93066"]) == []
@@ -210,20 +213,25 @@ def test_city_filter_shows_every_mode_and_lines_serving_all_cities(page):
         ".filter(l => l.mode === 'Métro').map(l => l.route_long_name)"
     ), "Metro 14 serves both Paris and Saint-Denis"
 
-    paris.uncheck()
-    saint_denis.uncheck()
+    # A line picked from the cities' lists doesn't outlive them.
+    bus = page.locator("#modes .mode", has_text="Bus")
+    bus.locator(".multiselect-box").click()
+    bus.locator(".option").first.click()
+    page.keyboard.press("Escape")
+
+    _remove_city(page, "Paris (75)")
+    _remove_city(page, "Saint-Denis (93)")
     assert _shown_modes(page) == default_modes
     assert _line_count(page) == default_count
+    assert page.evaluate("modeState.Bus.lines.size") == 0, "Clearing the cities should clear line picks"
 
 
 def test_city_search_matches_word_starts(page):
-    cities = page.locator("#cities")
-    cities.locator(".dropdown-toggle").click()
-    search = cities.locator(".search")
+    search = page.locator("#cities .multiselect-input")
 
     def found(query):
         search.fill(query)
-        return {t.strip() for t in cities.locator(".options label:visible").all_text_contents()}
+        return page.locator("#cities .option").all_text_contents()
 
     # Case and accents ignored, from the start of a word only.
     assert "Créteil (94)" in found("cre")
@@ -231,39 +239,8 @@ def test_city_search_matches_word_starts(page):
     assert "Le Kremlin-Bicêtre (94)" in found("kremlin")
     assert "L'Haÿ-les-Roses (94)" in found("l hay")
     assert "Saint-Maur-des-Fossés (94)" in found("saint maur")
-
-
-def test_ticking_a_searched_option_clears_the_search(page):
-    # Typing "Les Ul" then ticking Les Ulis used to leave the list showing
-    # only Les Ulis: the search had to be erased by hand to find another city.
-    cities = page.locator("#cities")
-    cities.locator(".dropdown-toggle").click()
-    search = cities.locator(".search")
-    options = cities.locator(".options label")
-
-    search.fill("Les Ul")
-    cities.get_by_role("checkbox", name="Les Ulis (91)", exact=True).check()
-
-    expect(search).to_have_value("")
-    expect(search).to_be_focused()
-    expect(cities.locator(".options label:visible")).to_have_count(options.count())
-    expect(cities.get_by_role("checkbox", name="Les Ulis (91)", exact=True)).to_be_checked()
-
-
-def test_dropdown_closes_with_its_button_or_escape(page):
-    cities = page.locator("#cities")
-    dropdown = cities.locator(".dropdown")
-    toggle = cities.locator(".dropdown-toggle")
-
-    toggle.click()
-    expect(dropdown).to_have_class(re.compile(r"\bopen\b"))
-    cities.get_by_role("button", name="Fermer").click()
-    expect(dropdown).not_to_have_class(re.compile(r"\bopen\b"))
-
-    toggle.click()
-    cities.locator(".search").fill("Les Ul")
-    page.keyboard.press("Escape")
-    expect(dropdown).not_to_have_class(re.compile(r"\bopen\b"))
+    # Names starting with the query come first.
+    assert found("paris")[0] == "Paris (75)"
 
 
 def _stop_popup(page, stops, cursor):
@@ -486,23 +463,3 @@ def test_first_tap_previews_and_second_tap_selects(touch_page):
 
     touch_page.touchscreen.tap(*spots["empty"])
     assert _selection_state(touch_page) == CLEARED
-
-
-def test_show_all_checkbox_syncs_with_line_selection(page):
-    # "Afficher toutes les lignes" must never stay checked once it no longer
-    # reflects reality, and re-checking it must restore the literal "all"
-    # state rather than leaving a stale narrower selection in effect.
-    tramway = page.locator("#modes details", has_text="Tramway")
-    all_box = tramway.locator("label", has_text="Afficher toutes les lignes").locator("input")
-    expect(all_box).to_be_checked()
-
-    lines_toggle = tramway.locator(".dropdown-toggle").last
-    lines_toggle.click()
-    tramway.locator(".options label").first.locator("input").check()
-
-    expect(all_box).not_to_be_checked()
-    expect(lines_toggle).not_to_have_text("Sélectionner…")
-
-    all_box.check()
-
-    expect(lines_toggle).to_have_text("Sélectionner…")

@@ -16,8 +16,8 @@ const ACCESS_COUNT_FIELD = {
 // board and alight accessibly.
 const MIN_MATCHING_STOPS = 2;
 document.getElementById("lines-hint").textContent =
-  `Seules les lignes ayant au moins ${MIN_MATCHING_STOPS} arrêts correspondant ` +
-  "à l'accessibilité sélectionnée sont affichées et proposées dans les listes.";
+  `Une ligne n'est proposée que si au moins ${MIN_MATCHING_STOPS} de ses arrêts ` +
+  "correspondent à l'accessibilité choisie (pour pouvoir monter et descendre).";
 const MODE_DEFAULT_ON = new Set(["Métro", "RER", "Tramway"]);
 const SEARCH_THRESHOLD = 12;  // add a search box above lists longer than this
 
@@ -48,16 +48,20 @@ const collator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" })
 // read as spaces — "l hay" finds "L'Haÿ-les-Roses".
 const foldForSearch = text => text.normalize("NFD").replace(/[̀-ͯ]/g, "")
   .toLowerCase().replace(/[-'’]/g, " ");
+// Whether a folded text has a word starting with a folded query: "cre"
+// finds Créteil, not Vaucresson.
+const startsAWord = (text, query) => ` ${text}`.includes(` ${query}`);
 
 // ── State ────────────────────────────────────────────────────────────────────
 let LINES = [];  // records from lines.json
 let CITY_LABELS = {};  // INSEE code → "Name (département)", from lines.json
 const accessState = { ...ACCESS_DEFAULT };
 const selectedCities = new Set();  // INSEE codes
-let cityFilterActive = false;  // whether modes were switched to all lines for it
+let cityFilterActive = false;  // whether modes were switched on for it
+// A mode on shows its picked lines, or all of them if none is picked.
 const modeState = Object.fromEntries(Object.keys(MODE_COLORS).map(mode => [
   mode,
-  { showAll: MODE_DEFAULT_ON.has(mode), lines: new Set() },
+  { on: MODE_DEFAULT_ON.has(mode), lines: new Set() },
 ]));
 
 const selectedAccess = () => Object.keys(accessState).filter(k => accessState[k]);
@@ -93,8 +97,7 @@ function visibleRouteIds() {
   const ids = [];
   for (const line of LINES) {
     const st = modeState[line.mode];
-    if (!st) continue;
-    if (!st.showAll && st.lines.size === 0) continue;
+    if (!st?.on) continue;
     if (!lineMatchesFilters(line, access)) continue;
     if (st.lines.size > 0 && !st.lines.has(line.route_long_name)) continue;
     ids.push(line.route_id);
@@ -138,151 +141,217 @@ map.on("zoomend", updateStats);
 function closeAllDropdowns() {
   document.querySelectorAll(".dropdown.open").forEach(d => d.classList.remove("open"));
 }
-// Close any open dropdown when clicking outside of it, or on Escape.
+// Close any open dropdown when clicking outside of it, or on Escape. The
+// event's path, not e.target.closest(): a click on an option or a tag's ×
+// removes it from the page before this runs.
 document.addEventListener("click", e => {
-  if (!e.target.closest(".dropdown")) closeAllDropdowns();
+  if (!e.composedPath().some(el => el.classList?.contains("dropdown"))) closeAllDropdowns();
 });
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") closeAllDropdowns();
 });
 
-// A closed-by-default dropdown of checkboxes (search box included above
-// SEARCH_THRESHOLD options), mirroring a Streamlit multiselect: the toggle
-// shows the current selection, the panel opens on click and stays open
-// while checking options, and closes on an outside click. Options are
-// shown as labelOf(value); the search matches anywhere in them, or only at
-// the start of a word with wordStart ("cre" finds Créteil, not Vaucresson).
-// Without any option, the toggle shows emptyText and can't be opened.
-function makeDropdown(container, values, selectionSet, onChange,
-                      { labelOf = value => value, wordStart = false,
-                        emptyText = "Aucun choix" } = {}) {
-  container.innerHTML = "";
+// A multiselect, like Streamlit's: a box showing the selected values as
+// tags (each removable with its ×), or placeholder while there's none;
+// clicking it opens the list of the other values, clicking one adds it.
+// Lists longer than SEARCH_THRESHOLD can be typed into: the box is then
+// also a search field narrowing the list. Shorter lists are click-only, so
+// a phone's keyboard doesn't pop up for nothing. With the keyboard, ↓/↑
+// move a highlight through the list and Enter picks the highlighted value
+// (the first one until moved). The search matches anywhere in a value, or only at the start of
+// a word with wordStart ("cre" finds Créteil, not Vaucresson); values
+// starting with the query come first ("paris": Paris before
+// Cormeilles-en-Parisis). Values are shown as labelOf(value). The list
+// stays open after a pick, to pick several values seen in it, or closes
+// with closeOnPick, for values searched one at a time (cities). A
+// separator (HTML), if any, is shown between tags.
+function makeMultiSelect(container, values, selectionSet, onChange,
+                         { placeholder, labelOf = value => value, wordStart = false,
+                           closeOnPick = false, separator = null }) {
+  const folded = new Map(values.map(value => [value, foldForSearch(labelOf(value))]));
+  const matches = wordStart ? startsAWord : (text, query) => text.includes(query);
 
-  const dropdown = document.createElement("div");
-  dropdown.className = "dropdown";
+  // The panel's × in its top-right corner: the panel stays open while
+  // picking values, and clicking outside to close it isn't obvious.
+  container.innerHTML =
+    '<div class="dropdown"><div class="multiselect-box"><span class="tags"></span></div>' +
+    '<div class="dropdown-panel">' +
+    '<button type="button" class="dropdown-close" aria-label="Fermer">×</button>' +
+    '<div class="options"></div></div></div>';
+  const dropdown = container.firstChild;
+  const box = dropdown.querySelector(".multiselect-box");
+  const tags = box.querySelector(".tags");
+  const list = dropdown.querySelector(".options");
 
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "dropdown-toggle";
-  toggle.addEventListener("click", () => {
-    const wasOpen = dropdown.classList.contains("open");
-    closeAllDropdowns();
-    dropdown.classList.toggle("open", !wasOpen);
-  });
-
-  function updateToggleText() {
-    const selected = values.filter(v => selectionSet.has(v)).map(labelOf);
-    const text = values.length === 0 ? emptyText
-      : selected.length === 0 ? "Sélectionner…"
-      : selected.length <= 3 ? selected.join(", ")
-      : `${selected.length} sélectionnées`;
-    toggle.textContent = text;
-    toggle.classList.toggle("placeholder", selected.length === 0);
-  }
-  toggle.disabled = values.length === 0;
-
-  const panel = document.createElement("div");
-  panel.className = "dropdown-panel";
-
-  // A close button in the panel's top-right corner: the panel stays open
-  // while ticking options, and clicking outside to close it isn't obvious.
-  const close = document.createElement("button");
-  close.type = "button";
-  close.className = "dropdown-close";
-  close.textContent = "×";
-  close.setAttribute("aria-label", "Fermer");  // for screen readers
-  close.addEventListener("click", () => {
-    dropdown.classList.remove("open");
-    toggle.focus();
-  });
-  panel.appendChild(close);
-  let search = null;
+  let input = null;
+  const empty = document.createElement("span");  // click-only lists' placeholder
   if (values.length > SEARCH_THRESHOLD) {
-    search = document.createElement("input");
-    search.className = "search";
-    search.placeholder = "Rechercher…";
-    panel.appendChild(search);
-  }
-  const list = document.createElement("div");
-  list.className = "options";
-  const noResults = document.createElement("div");
-  noResults.className = "no-results";
-  noResults.textContent = "Aucun résultat";
-  noResults.hidden = true;
-  const options = [];  // [label element, its text folded for search]
-  function showMatchingOptions() {
-    const query = foldForSearch(search.value).trim();
-    let anyFound = false;
-    for (const [label, text] of options) {
-      const found = wordStart ? ` ${text}`.includes(` ${query}`) : text.includes(query);
-      label.style.display = found ? "" : "none";
-      anyFound ||= found;
-    }
-    noResults.hidden = anyFound;
-  }
-  for (const value of values) {
-    const label = document.createElement("label");
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.checked = selectionSet.has(value);
-    box.addEventListener("change", () => {
-      box.checked ? selectionSet.add(value) : selectionSet.delete(value);
-      updateToggleText();
-      onChange();
-      // An option found by searching is done with: clear the search, back
-      // to the whole list, ready to type the next one. Only after a search,
-      // so a phone's keyboard, already open then, never pops up on a tap.
-      if (search?.value) {
-        search.value = "";
-        showMatchingOptions();
-        search.focus();
-      }
+    input = document.createElement("input");
+    input.className = "multiselect-input";
+    input.setAttribute("aria-label", placeholder);
+    input.addEventListener("input", () => {
+      active = 0;  // the best match, first
+      setOpen(true);
     });
-    label.appendChild(box);
-    label.appendChild(document.createTextNode(" " + labelOf(value)));
-    list.appendChild(label);
-    options.push([label, foldForSearch(labelOf(value))]);
+    box.appendChild(input);
+  } else {
+    empty.className = "multiselect-placeholder";
+    empty.textContent = placeholder;
+    box.appendChild(empty);
+    box.tabIndex = 0;  // keyboard access, as a button
+    box.setAttribute("role", "button");
   }
-  panel.appendChild(list);
-  panel.appendChild(noResults);
-  search?.addEventListener("input", showMatchingOptions);
 
-  updateToggleText();
-  dropdown.appendChild(toggle);
-  dropdown.appendChild(panel);
-  container.appendChild(dropdown);
+  // A phone's on-screen Enter key sends the same Enter, picking the
+  // highlighted value; it has no arrows. On click-only lists (a button),
+  // Enter or Space opens and closes the list.
+  box.addEventListener("keydown", e => {
+    const open = dropdown.classList.contains("open");
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();  // no caret move or page scroll
+      if (open) setActive(active + (e.key === "ArrowDown" ? 1 : -1));
+      else setOpen(true);
+    } else if (e.key === "Enter" && open && shown.length) {
+      e.preventDefault();
+      pick(shown[active], true);
+    } else if (!input && (e.key === "Enter" || e.key === " ")) {
+      e.preventDefault();
+      setOpen(!open);
+    }
+  });
+
+  function setOpen(open) {
+    if (open && !dropdown.classList.contains("open")) {
+      closeAllDropdowns();
+      active = 0;
+    }
+    dropdown.classList.toggle("open", open);
+    if (open) showOptions();
+  }
+  box.addEventListener("click", e => {
+    if (e.target.closest(".tag")) return;  // its × handles the click
+    const open = dropdown.classList.contains("open");
+    if (open && e.target === input) return;  // placing the caret
+    setOpen(!open);
+    if (!open) input?.focus();
+  });
+  dropdown.querySelector(".dropdown-close").addEventListener("click", () => {
+    setOpen(false);
+    (input ?? box).focus();
+  });
+
+  function change(value, selected) {
+    selected ? selectionSet.add(value) : selectionSet.delete(value);
+    showTags();
+    showOptions();
+    onChange();
+  }
+
+  function showTags() {
+    const selected = values.filter(value => selectionSet.has(value)).map(value => {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = labelOf(value);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", `Retirer ${labelOf(value)}`);
+      remove.addEventListener("click", () => change(value, false));
+      tag.appendChild(remove);
+      return tag;
+    });
+    // Separators are elements of their own, not drawn by CSS around the
+    // tags, so they wrap with them.
+    tags.replaceChildren(...selected.flatMap((tag, i) => {
+      if (i === 0 || !separator) return [tag];
+      const sign = document.createElement("span");
+      sign.className = "tag-separator";
+      sign.innerHTML = separator;
+      sign.setAttribute("aria-hidden", "true");
+      return [sign, tag];
+    }));
+    if (input) input.placeholder = selectionSet.size ? "Ajouter…" : placeholder;
+    empty.hidden = selectionSet.size > 0;
+  }
+
+  let shown = [];  // values listed, in order
+  let active = 0;  // index in shown of the highlighted value, Enter's pick
+  function showOptions() {
+    const query = input ? foldForSearch(input.value).trim() : "";
+    const found = values.filter(value => !selectionSet.has(value) && matches(folded.get(value), query));
+    const startsWithQuery = value => folded.get(value).startsWith(query);
+    const ranked = [...found.filter(startsWithQuery), ...found.filter(v => !startsWithQuery(v))];
+    shown = ranked;
+    list.replaceChildren(...ranked.map((value, i) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.className = "option";
+      option.textContent = labelOf(value);
+      option.addEventListener("click", () => pick(value));
+      // mousemove, not mouseenter: the list scrolling under a still mouse
+      // (arrow keys) mustn't take the highlight.
+      option.addEventListener("mousemove", () => setActive(i));
+      return option;
+    }));
+    if (!ranked.length) {
+      list.innerHTML = `<div class="no-results">${query ? "Aucun résultat" : "Tout est sélectionné"}</div>`;
+    }
+    setActive(active);  // kept in place after a pick: the next value
+  }
+
+  function setActive(i) {
+    const options = list.querySelectorAll(".option");
+    if (!options.length) return;
+    active = Math.max(0, Math.min(i, options.length - 1));
+    options.forEach((option, j) => option.classList.toggle("active", j === active));
+    options[active].scrollIntoView({ block: "nearest" });
+  }
+
+  // A value found by typing is done with: clear the search. Then, keep the
+  // focus to go on with the keyboard when picked with Enter, or after
+  // typing in a list staying open (a phone's keyboard is then already open,
+  // so it never pops up on a tap); else let it go, putting a phone's
+  // keyboard away to show the map.
+  function pick(value, withEnter = false) {
+    const typed = Boolean(input?.value);
+    if (input) input.value = "";
+    if (closeOnPick) setOpen(false);
+    if (withEnter || (typed && !closeOnPick)) (input ?? box).focus();
+    else input?.blur();
+    change(value, true);
+  }
+
+  showTags();
 }
 
-// Direct references to each mode's option containers (mode names contain
+// Direct references to each mode's row elements (mode names contain
 // spaces/accents, so they are not safe to use as DOM ids).
-const modeUI = {};  // mode → { allBox, linesDiv }
+const modeUI = {};  // mode → { row, box, linesDiv }
 
-// A specific line selection means "toutes les lignes" is no longer
-// literally true — uncheck it (state + UI) so the checkbox never lies about
-// what's actually shown.
-function syncShowAllCheckbox(mode) {
-  const st = modeState[mode];
-  if (st.lines.size > 0 && st.showAll) {
-    st.showAll = false;
-    modeUI[mode].allBox.checked = false;
-  }
+// Show a mode's row as its state: ticked with its line list when on; greyed
+// out, with "Aucune ligne correspondante", when no line matches the filters
+// (its state is kept for when the filters change again).
+function syncModeRow(mode) {
+  const { row, box } = modeUI[mode];
+  box.checked = modeState[mode].on && !box.disabled;
+  row.classList.toggle("on", box.checked);
 }
 
-// Selecting a city asks what serves it: every mode then shows all its
-// lines, buses included (off by default only to keep the whole-region view
-// readable); clearing the last city restores the defaults. Modes narrowed
-// to specific lines are left alone, and the checkboxes show the change.
+// Selecting a city asks what serves it: every mode is then switched on,
+// buses included (off by default only to keep the whole-region view
+// readable). Clearing the last city returns to the overview, as the hint
+// says: default modes, no line picked — lines picked from a city's list
+// make no sense without it. The checkboxes show the change.
 function onCitiesChange() {
-  for (const mode of Object.keys(MODE_COLORS)) rebuildModeOptions(mode);
   const active = selectedCities.size > 0;
   if (active !== cityFilterActive) {
     cityFilterActive = active;
     for (const [mode, st] of Object.entries(modeState)) {
-      if (st.lines.size > 0) continue;
-      st.showAll = active || MODE_DEFAULT_ON.has(mode);
-      modeUI[mode].allBox.checked = st.showAll;
+      st.on = active || MODE_DEFAULT_ON.has(mode);
+      if (!active) st.lines.clear();
     }
   }
+  for (const mode of Object.keys(MODE_COLORS)) rebuildModeOptions(mode);
   applyFilters();
 }
 
@@ -293,10 +362,11 @@ function rebuildModeOptions(mode) {
   const names = [...new Set(availableLines(mode).map(l => l.route_long_name))]
     .sort(collator.compare);
   for (const name of st.lines) if (!names.includes(name)) st.lines.delete(name);
-  makeDropdown(modeUI[mode].linesDiv, names, st.lines, () => {
-    syncShowAllCheckbox(mode);
-    applyFilters();
-  }, { emptyText: "Aucune ligne correspondante" });
+  makeMultiSelect(modeUI[mode].linesDiv, names, st.lines, applyFilters,
+    { placeholder: "Filtrer par ligne (toutes par défaut)" });
+  modeUI[mode].row.classList.toggle("empty", names.length === 0);
+  modeUI[mode].box.disabled = names.length === 0;
+  syncModeRow(mode);
 }
 
 function buildSidebar() {
@@ -317,42 +387,39 @@ function buildSidebar() {
     accessDiv.appendChild(label);
   }
 
+  // Cities match from the start of a word, as typing is the way in (~1,300).
   const cityCodes = Object.keys(CITY_LABELS)
     .sort((a, b) => collator.compare(CITY_LABELS[a], CITY_LABELS[b]));
-  makeDropdown(document.getElementById("cities"), cityCodes, selectedCities, onCitiesChange,
-    { labelOf: code => CITY_LABELS[code], wordStart: true });
+  makeMultiSelect(document.getElementById("cities"), cityCodes, selectedCities, onCitiesChange, {
+    placeholder: "Filtrer par ville (toutes par défaut)",
+    labelOf: code => CITY_LABELS[code],
+    wordStart: true,
+    closeOnPick: true,
+    // Cities combine with "and" (a line must serve them all), unlike lines
+    // ("or"): a double arrow between them shows the lines connecting them.
+    // An icon, not the "↔" character: its look depends on the fonts, and
+    // some lack it.
+    separator: '<svg width="14" height="9"><use href="#icon-both-ways" /></svg>',
+  });
 
   const modesDiv = document.getElementById("modes");
   for (const [mode, color] of Object.entries(MODE_COLORS)) {
-    const details = document.createElement("details");
-    details.open = MODE_DEFAULT_ON.has(mode);
-    details.innerHTML =
-      `<summary><span>${mode}</span><span class="bar" style="background:${color}"></span></summary>`;
-
-    modeUI[mode] = {};
-
-    const allLabel = document.createElement("label");
-    const allBox = document.createElement("input");
-    allBox.type = "checkbox";
-    allBox.checked = modeState[mode].showAll;
-    allBox.addEventListener("change", () => {
-      modeState[mode].showAll = allBox.checked;
-      if (allBox.checked) {
-        // Checking "all" clears any narrower selection so it truly shows
-        // every line, rather than leaving a stale selection in effect.
-        modeState[mode].lines.clear();
-        rebuildModeOptions(mode);
-      }
+    // One row per mode: its checkbox, then its line list when it's on.
+    const row = document.createElement("div");
+    row.className = "mode";
+    row.innerHTML =
+      `<label class="mode-toggle"><input type="checkbox"><span class="mode-name">${mode}</span>` +
+      `<span class="bar" style="background:${color}"></span></label>` +
+      '<div class="mode-lines"></div>' +
+      '<div class="hint mode-empty">Aucune ligne correspondante</div>';
+    const box = row.querySelector("input");
+    box.addEventListener("change", () => {
+      modeState[mode].on = box.checked;
+      syncModeRow(mode);
       applyFilters();
     });
-    allLabel.appendChild(allBox);
-    allLabel.appendChild(document.createTextNode(" Afficher toutes les lignes"));
-    details.appendChild(allLabel);
-    modeUI[mode].allBox = allBox;
-
-    details.insertAdjacentHTML("beforeend", '<div class="hint">Sélectionnez des lignes spécifiques</div>');
-    modeUI[mode].linesDiv = details.appendChild(document.createElement("div"));
-    modesDiv.appendChild(details);
+    modeUI[mode] = { row, box, linesDiv: row.querySelector(".mode-lines") };
+    modesDiv.appendChild(row);
   }
   for (const mode of Object.keys(MODE_COLORS)) rebuildModeOptions(mode);
 }
