@@ -470,6 +470,76 @@ def test_click_selects_and_hover_only_previews(page):
     assert _selection_state(page)["hint"] is True, "The hint should be back on a new visit"
 
 
+def _caught_by_mouse_and_finger(page, find_spot):
+    """The layers of what featuresAt() catches, for the mouse and for a
+    finger, at the spot returned by find_spot (JS function, null if none)."""
+    _wait_for_map_idle(page)
+    return page.evaluate(
+        f"""() => {{
+          const p = ({find_spot})();
+          if (!p) return null;
+          const caught = touch => {{
+            touchInput = touch;
+            return featuresAt(p).map(f => f.layer.id);
+          }};
+          const result = {{mouse: caught(false), finger: caught(true)}};
+          touchInput = false;
+          return result;
+        }}"""
+    )
+
+
+def test_finger_catches_a_stop_or_line_tapped_beside_it(page):
+    """A finger is less precise than a mouse: a tap a little beside a stop
+    (12 px, on nothing) or a line (6 px, no stop nearby) still catches it; the
+    mouse stays exact."""
+    beside_stop = _caught_by_mouse_and_finger(
+        page,
+        """() => {
+          for (const stop of map.queryRenderedFeatures({layers: ['stops']}).slice(0, 50)) {
+            const c = map.project(stop.geometry.coordinates);
+            for (const [dx, dy] of [[12, 0], [-12, 0], [0, 12], [0, -12]]) {
+              const p = new maplibregl.Point(c.x + dx, c.y + dy);
+              if (!map.queryRenderedFeatures(p, {layers: ['stops', 'lines']}).length) return p;
+            }
+          }
+          return null;
+        }""",
+    )
+    assert beside_stop, "No empty spot found 12 px from a stop"
+    assert beside_stop["mouse"] == [], "The mouse should only catch what's exactly under it"
+    assert beside_stop["finger"] and set(beside_stop["finger"]) == {"stops"}, \
+        "A finger tap 12 px beside a stop should catch it"
+
+    # 6 px off a segment's middle, on nothing, inside the map, no stop within 25 px.
+    beside_line = _caught_by_mouse_and_finger(
+        page,
+        """() => {
+          const {clientWidth: w, clientHeight: h} = map.getCanvas();
+          const free = p => p.x > 0 && p.x < w && p.y > 0 && p.y < h
+            && !map.queryRenderedFeatures(p, {layers: ['stops', 'lines']}).length
+            && !map.queryRenderedFeatures([[p.x - 25, p.y - 25], [p.x + 25, p.y + 25]],
+                                          {layers: ['stops']}).length;
+          for (const line of map.queryRenderedFeatures({layers: ['lines']})) {
+            const g = line.geometry;
+            const path = g.type === 'LineString' ? g.coordinates : g.coordinates[0];
+            for (let i = 1; i < path.length; i++) {
+              const a = map.project(path[i - 1]), b = map.project(path[i]);
+              const len = Math.hypot(b.x - a.x, b.y - a.y);
+              if (len < 20) continue;
+              const p = new maplibregl.Point((a.x + b.x) / 2 - 6 * (b.y - a.y) / len,
+                                             (a.y + b.y) / 2 + 6 * (b.x - a.x) / len);
+              if (free(p)) return p;
+            }
+          }
+          return null;
+        }""",
+    )
+    assert beside_line, "No empty spot found 6 px from a line, away from stops"
+    assert beside_line["mouse"] == [], "The mouse should only catch what's exactly under it"
+    assert beside_line["finger"] == ["lines"], "A finger tap 6 px beside a line should catch it"
+
+
 def test_first_tap_previews_and_second_tap_selects(touch_page):
     """A finger can't hover: its first tap on a stop previews it (Street View
     link usable, hint inviting to tap again), a second one selects it, and a

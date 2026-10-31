@@ -206,8 +206,64 @@ function linePopupHtml(lineFeature) {
 
 // ── Popup, selection, mouse and touch ───────────────────────────────────────
 
-const featuresAt = point => map.queryRenderedFeatures(point, { layers: ["stops", "lines"] });
 const stopsAmong = features => features.filter(f => f.layer.id === "stops");
+
+// A finger is less precise than a mouse, and hides what it taps: a tap
+// within this distance of a stop's center catches it — a target ~40px
+// across, close to the 44px recommended for touch, without bigger circles.
+const STOP_TOUCH_TOLERANCE_PX = 20;
+// Lines are thinner still, but run almost everywhere in Paris: a wider
+// tolerance would leave no empty spot to tap to deselect.
+const LINE_TOUCH_TOLERANCE_PX = 10;
+
+// Distance in pixels from a point to the segment [a, b].
+function segmentDistance(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const t = dx || dy
+    ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)))
+    : 0;
+  return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+}
+
+// Distance in pixels from a point to a stop or line on screen.
+function screenDistance(point, f) {
+  const g = f.geometry;
+  if (g.type === "Point") {
+    const p = map.project(g.coordinates);
+    return Math.hypot(p.x - point.x, p.y - point.y);
+  }
+  const paths = g.type === "LineString" ? [g.coordinates] : g.coordinates;
+  let d = Infinity;
+  for (const path of paths) {
+    const pts = path.map(c => map.project(c));
+    for (let i = 1; i < pts.length; i++) d = Math.min(d, segmentDistance(point, pts[i - 1], pts[i]));
+  }
+  return d;
+}
+
+// The features of a layer within r pixels of a point, nearest first.
+function featuresNear(point, layer, r) {
+  const box = [[point.x - r, point.y - r], [point.x + r, point.y + r]];
+  return map.queryRenderedFeatures(box, { layers: [layer] })
+    .map(f => ({ f, d: screenDistance(point, f) }))
+    .filter(({ d }) => d <= r)
+    .sort((a, b) => a.d - b.d)
+    .map(({ f }) => f);
+}
+
+// The stops and lines under the cursor or finger. A tap hitting no stop
+// exactly takes the stop nearest to it within STOP_TOUCH_TOLERANCE_PX, with
+// the other points of its name (its directions, platforms), as an exact tap
+// would — preferred to a line under the finger, which its popup lists. A tap
+// hitting nothing takes the line nearest to it within LINE_TOUCH_TOLERANCE_PX.
+function featuresAt(point) {
+  const exact = map.queryRenderedFeatures(point, { layers: ["stops", "lines"] });
+  if (!touchInput || stopsAmong(exact).length) return exact;
+  const stops = featuresNear(point, "stops", STOP_TOUCH_TOLERANCE_PX);
+  if (stops.length) return stops.filter(f => f.properties.stop_name === stops[0].properties.stop_name);
+  if (exact.length) return exact;
+  return featuresNear(point, "lines", LINE_TOUCH_TOLERANCE_PX).slice(0, 1);
+}
 
 // What a popup is about: its stop names, or else its line. `key` tells
 // whether two taps hit the same stops or line (a finger rarely lands twice
