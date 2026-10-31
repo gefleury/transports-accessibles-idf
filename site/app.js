@@ -8,7 +8,7 @@
 // (index.html): app.js, sidebar.js, popup.js, highlight.js. While loading, a
 // script only uses what earlier ones define; anything from later ones is
 // used at run time (page load, user events).
-// Uses: buildSidebar, applyFilters, LINES (sidebar.js); addHighlightLayers,
+// Uses: buildSidebar, applyFilters, LINES, CITY_LABELS, CITY_BBOXES (sidebar.js); addHighlightLayers,
 // STOPS_COPY_IDS (highlight.js).
 
 const MODE_COLORS = {
@@ -45,16 +45,26 @@ protocol.add(tilesFile);
 // metadata at startup (single source of truth: build_tiles.py).
 let stopsMinzoom = 0;
 
+// The map's initial view, Paris — also where it goes back to when the city
+// filter is cleared (sidebar.js).
+const HOME_VIEW = { center: [2.3522, 48.8566], zoom: 10 };
+
 const map = new maplibregl.Map({
   container: "map",
-  center: [2.3522, 48.8566],
-  zoom: 10,
+  ...HOME_VIEW,
   // Basemap: light minimal style with labels in each place's local
   // language (French here) — free, no API key. Tried and rejected as too
   // detailed: Plan IGN,
   // https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/attenue.json
   style: "https://tiles.openfreemap.org/styles/positron",
+  // No rotation or tilt: easily triggered by accident (two-finger gestures
+  // on phones and touchpads, right-click drag), and of no use on this map.
+  dragRotate: false,
+  touchPitch: false,
 });
+// Pinch and arrow keys still zoom and pan, without rotating.
+map.touchZoomRotate.disableRotation();
+map.keyboard.disableRotation();
 
 // Zoom +/- buttons, usable with the mouse alone (no scroll/pinch needed).
 // showCompass: false keeps it to just zoom, no rotation control.
@@ -140,8 +150,13 @@ map.on("load", async () => {
     for (const id of ["stops", ...STOPS_COPY_IDS]) map.setLayerZoomRange(id, stopsMinzoom, 24);
   }
 
-  const payload = await (await fetch("data/lines.json")).json();
+  // "no-cache": check with the server that the browser's copy is current
+  // (re-downloading it only if not) — a stale copy, kept by the browser
+  // after a data or code update, can lack fields the scripts now expect.
+  const payload = await (await fetch("data/lines.json", { cache: "no-cache" })).json();
   LINES = payload.lines;
+  CITY_LABELS = payload.cities;
+  CITY_BBOXES = payload.city_bboxes;
   document.getElementById("updated").textContent =
     "Données mises à jour le " +
     new Date(payload.updated_on).toLocaleDateString("fr-FR");

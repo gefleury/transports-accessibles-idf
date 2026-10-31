@@ -162,8 +162,47 @@ body {
   display: none;
 }
 
+/* A flex box, on both layouts: centers the chevron on the text (inline, it
+   would sit on the baseline, 1px high). */
+.sidebar-toggle-action-group {
+  display: flex;
+  align-items: center;
+}
+
 .sidebar-chevron {
   color: #555;
+}
+
+/* "Réinitialiser tous les filtres" (sidebar.js), closing the panel across
+   its width; shown only when a filter has changed. Grey as the panel's
+   other controls (blue is for what's selected): border as the multiselect
+   boxes, text as their ▾. */
+#reset-filters {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin: 14px 0 4px;
+  padding: 5px 12px;
+  border: 1px solid #ccc;
+  border-radius: 14px;
+  background: #fff;
+  color: #333;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Discreet hover: only the border darkens. */
+#reset-filters:hover,
+#reset-filters:focus-visible {
+  border-color: #999;
+}
+
+#reset-filters[hidden] {
+  display: none;  /* the flex display above would override [hidden]'s */
 }
 
 #sidebar-content {
@@ -183,7 +222,7 @@ body {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 20px 16px 4px;
+  padding: 12px 16px 4px;  /* top: same as #sidebar's top margin (desktop) */
   background: #fff;
   color: #555;
   font-size: 12px;
@@ -249,34 +288,46 @@ label {
   flex: none;
 }
 
-#modes details {
+/* One row per mode (sidebar.js): checkbox, name, color bar; below it, its
+   line list when on, or a note when no line matches the filters. */
+.mode {
   margin: 6px 0;
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  padding: 6px 10px;
 }
 
-#modes details > summary {
-  justify-content: flex-start;
+.mode-toggle {
+  font-weight: 600;
 }
 
-#modes details > summary .bar {
+.mode-toggle .bar {
   margin-left: auto;
 }
 
-#modes details > summary::-webkit-details-marker {
+/* Fixed size, no browser margins (they differ between browsers): all the
+   sidebar's checkboxes line up, and a mode's name starts exactly 20px in
+   (14px + the label's 6px gap), the indent of what's under it. */
+#sidebar input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.mode-lines,
+.mode-empty {
+  margin: 0 0 0 20px;
+}
+
+.mode:not(.on) .mode-lines,
+.mode:not(.empty) .mode-empty {
   display: none;
 }
 
-#modes details > summary::after {
-  content: "▾";
-  color: #333;
-  font-size: 16px;
+.mode.empty .mode-toggle {
+  color: #999;
+  cursor: default;
 }
 
-#modes details[open] > summary::after {
-  content: "▴";
+.mode.empty .bar {
+  opacity: 0.35;
 }
 
 summary {
@@ -288,47 +339,136 @@ summary {
   gap: 8px;
 }
 
-.search {
-  width: 100%;
-  box-sizing: border-box;
-  margin: 6px 0 4px;
-  padding: 4px 6px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.options {
-  max-height: 180px;
-  overflow-y: auto;
-}
-
-.options label {
-  margin: 1px 0;
-}
-
+/* Multiselect (sidebar.js makeMultiSelect): a box with the selected values
+   as tags and, on long lists, a search field; below it, the list of the
+   other values. */
 .dropdown {
   position: relative;
   margin: 4px 0 6px;
 }
 
-.dropdown-toggle {
-  display: block;
-  width: 100%;
+.multiselect-box {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
   box-sizing: border-box;
-  padding: 5px 8px;
+  padding: 3px 22px 3px 6px;  /* right: room for the arrow */
   border: 1px solid #ccc;
   border-radius: 4px;
   background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.multiselect-box::after {
+  content: "▾";
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #333;
+  font-size: 16px;
+}
+
+.dropdown.open .multiselect-box::after {
+  content: "▴";
+}
+
+/* Tags flow in the box's own wrapping row, with the search field. */
+.multiselect-box .tags {
+  display: contents;
+}
+
+.multiselect-input {
+  flex: 1;
+  min-width: 60px;
+  padding: 2px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  color: #333;
+}
+
+.multiselect-input::placeholder,
+.multiselect-placeholder {
+  color: #888;
+}
+
+.multiselect-placeholder {
+  padding: 2px;
+}
+
+/* Same colors as .deselect-button. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px 0 8px;
+  border: 1px solid #c9d6e2;
+  border-radius: 10px;
+  background: #e3eef7;
+  color: #0f3d6b;
+}
+
+.tag button {
+  width: 20px;
+  height: 20px;
+  /* Bottom: lifts the "×" by 1px — most fonts sit it a little low. */
+  padding: 0 0 2px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #0f3d6b;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tag button:hover,
+.tag button:focus-visible {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.tag-separator {
+  display: flex;
+  color: #555;  /* as the close buttons */
+}
+
+.options {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.option {
+  display: block;
+  width: 100%;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #333;
   font: inherit;
   font-size: 12px;
   text-align: left;
   cursor: pointer;
-  color: #333;
 }
 
-.dropdown-toggle.placeholder {
+/* .active, not :hover: the highlight follows the mouse and the arrow keys
+   (sidebar.js), the value Enter picks. */
+.option.active,
+.option:focus-visible {
+  background: #e3eef7;
+}
+
+/* Shown in place of the options when there's none to list. */
+.no-results {
+  margin: 4px 6px;
   color: #888;
+  font-size: 12px;
 }
 
 .dropdown-panel {
@@ -339,7 +479,9 @@ summary {
   right: 0;
   z-index: 10;
   margin-top: 2px;
-  padding: 6px 8px;
+  /* Right: room for .dropdown-close (28px) + a 10px gap, so the options
+     never run under it. */
+  padding: 4px 38px 4px 4px;
   background: #fff;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -348,6 +490,29 @@ summary {
 
 .dropdown.open .dropdown-panel {
   display: block;
+}
+
+/* In the panel's top-right corner, whatever the content — same look as the
+   pinned popup's close button. */
+.dropdown-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #555;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dropdown-close:hover,
+.dropdown-close:focus-visible {
+  background: rgba(0, 0, 0, 0.05);
 }
 
 /* ── Nav (banner "À propos" menu) ──────────────────────────────────────── */
@@ -491,6 +656,11 @@ summary {
 
 #footer a {
   color: #2471a3;
+}
+
+/* Short name of the data provider, for narrow screens (see Mobile). */
+#footer .short-name {
+  display: none;
 }
 
 /* ── Content pages (Données / Guide de l'accessibilité / Contact) ───────── */
@@ -679,7 +849,7 @@ summary {
   #sidebar > summary {
     align-items: center;
     justify-content: space-between;
-    padding: 4px 2px 10px;
+    padding: 4px 4px 10px;  /* sides: 14px in with #sidebar's, as the content */
     font-size: 13px;
     font-weight: 600;
     color: #333;
@@ -692,7 +862,8 @@ summary {
      positioned children measure top/bottom against the containing
      block's padding edge, which ignores #sidebar's own padding, so
      without this the content's own padding-bottom left no visible gap
-     before the border. */
+     before the border. For the same reason, the content's own side
+     padding is all the margin it gets. */
   #sidebar-content {
     position: absolute;
     top: 37px;
@@ -700,6 +871,8 @@ summary {
     right: 0;
     bottom: 8px;
     overflow-y: auto;
+    padding-left: 14px;
+    padding-right: 14px;
   }
 
   /* Double chevron, right-pointing by default ("expand this way"); rotated
@@ -826,6 +999,17 @@ summary {
     padding: 12px 6px;
     font-size: 15px;
   }
+
+  /* More room for the map: no line above the map page's footer (#app is
+     the map page's body; content pages keep the line), no gap below the
+     map. */
+  #app ~ #footer::before {
+    display: none;
+  }
+
+  #map-wrap {
+    padding-bottom: 0;
+  }
 }
 
 /* Sidebar stacked above the map: the exact complement of the side-by-side
@@ -852,15 +1036,8 @@ summary {
      ::after text instead of the desktop's hidden .sidebar-toggle-action
      span — the text is generated on .sidebar-toggle-action-group so it
      groups with the icon under the same space-between half as before,
-     and order:-1 keeps it reading before the icon despite being a ::after.
-     display:flex here (the shared CSS never sets it — desktop only ever
-     shows the single chevron child, no ordering needed there) is what
-     makes that order:-1 actually take effect. */
-  .sidebar-toggle-action-group {
-    display: flex;
-    align-items: center;
-  }
-
+     and order:-1 keeps it reading before the icon despite being a ::after
+     (the shared CSS makes the group a flex box, which order needs). */
   .sidebar-toggle-action-group::after {
     content: "Afficher";
     order: -1;
@@ -894,14 +1071,30 @@ summary {
     max-height: calc(45vh - 42px);
     overflow-y: auto;
   }
+
+  #meta {
+    padding-top: 10px;
+  }
+
+  /* Keeps the footer on one line on small phones. */
+  #footer .full-name {
+    display: none;
+  }
+
+  #footer .short-name {
+    display: inline;
+  }
 }
 
 /* Tablets in landscape (e.g. iPad, Galaxy Tab): wide enough for the
-   side-by-side desktop layout, but a 320px sidebar leaves too little
-   room for the map. */
+   side-by-side desktop layout, with a slightly narrower sidebar to leave
+   the map more room — but wide enough to keep "Filtrer par ligne (toutes
+   par défaut)" on one line: 290px with the widest common font (DejaVu
+   Sans, Linux), + 2px for rounding. Tablets' scrollbars overlay the
+   content, taking no width. */
 @media (min-width: 1025px) and (max-width: 1400px) {
   #sidebar {
-    width: 260px;
+    width: 292px;
   }
 
   #banner {
@@ -919,10 +1112,13 @@ summary {
   }
 }
 
-/* Landscape phones: side-by-side layout, but even narrower than tablets'. */
+/* Landscape phones: side-by-side layout, but even narrower than tablets'.
+   No bottom margin, so the sidebar still ends with the map (#map-wrap has
+   no bottom padding on mobile). */
 @media (max-width: 1024px) and (orientation: landscape) and (max-height: 500px) {
   #sidebar {
     width: 240px;
+    margin-bottom: 0;
   }
 }
 
@@ -1002,7 +1198,8 @@ summary {
   z-index: 2;
   /* max-content: left: 50% alone would cap the width at half the map. */
   width: max-content;
-  max-width: calc(100% - 110px);
+  /* 48px each side: the zoom buttons take 39px (29px + 10px margin). */
+  max-width: calc(100% - 96px);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -1021,7 +1218,7 @@ summary {
 .map-notice > div {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 9px;
 }
 
 .map-notice svg {
@@ -1039,6 +1236,9 @@ summary {
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
+  /* max-content: left: 50% alone would cap the width at half the map. */
+  width: max-content;
+  max-width: calc(100% - 20px);
   min-height: 36px;
   padding: 6px 14px;
   border: 1px solid #c9d6e2;
@@ -1047,7 +1247,7 @@ summary {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
   color: #0f3d6b;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.85rem;  /* same as .map-notice */
   font-weight: 600;
   cursor: pointer;
 }

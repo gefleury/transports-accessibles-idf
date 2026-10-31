@@ -94,9 +94,41 @@ def _get_accessibility(result: pd.DataFrame, stop_id: str, line: str) -> str | N
 
 @skip_if_no_data
 def test_stops_required_columns(gdf_stops):
-    required = {"stop_id", "route_long_name", "stop_name", "mode"}
+    required = {"stop_id", "route_long_name", "stop_name", "mode", "nom_commune", "code_insee"}
     missing = required - set(gdf_stops.columns)
     assert not missing, f"arrets-lignes.geojson is missing columns: {missing}"
+
+
+def _assert_one_city_per_stop(stops: pd.DataFrame) -> None:
+    """Every stop has exactly one city: a name and a well-formed INSEE code,
+    the same on all its rows (one per line), and each code a single name.
+    The sidebar's city filter relies on it: a stop without a city would be
+    unreachable through it, and a code with two names would be listed under
+    one of them only.
+    """
+    blank_name = stops["nom_commune"].isna() | (stops["nom_commune"].str.strip() == "")
+    assert not blank_name.any(), (
+        f"{blank_name.sum()} stop row(s) have no city name, e.g. stop_id="
+        f"{stops.loc[blank_name, 'stop_id'].iloc[0]!r}"
+    )
+    bad_code = ~stops["code_insee"].fillna("").str.fullmatch(r"\d{5}")
+    assert not bad_code.any(), (
+        f"{bad_code.sum()} stop row(s) have no or a malformed INSEE code, e.g. "
+        f"{stops.loc[bad_code, 'code_insee'].iloc[0]!r}"
+    )
+    codes_per_stop = stops.groupby("stop_id")["code_insee"].nunique()
+    assert (codes_per_stop == 1).all(), (
+        f"Stop(s) in several cities, e.g. stop_id={codes_per_stop.idxmax()!r}"
+    )
+    names_per_code = stops.groupby("code_insee")["nom_commune"].nunique()
+    assert (names_per_code == 1).all(), (
+        f"INSEE code(s) with several city names, e.g. {names_per_code.idxmax()!r}"
+    )
+
+
+@skip_if_no_data
+def test_stops_each_have_one_city(gdf_stops):
+    _assert_one_city_per_stop(gdf_stops)
 
 
 @skip_if_no_data
@@ -319,6 +351,11 @@ def test_stops_accessibility_values_are_valid(processed_stops):
     valid = {"true", "false", "partial", "unknown"}
     unexpected = set(processed_stops["ArRAccessibility"].unique()) - valid
     assert not unexpected, f"Unexpected ArRAccessibility values in stops: {unexpected}"
+
+
+@skip_if_no_processed
+def test_processed_stops_each_have_one_city(processed_stops):
+    _assert_one_city_per_stop(processed_stops)
 
 
 @skip_if_no_processed

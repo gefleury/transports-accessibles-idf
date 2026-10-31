@@ -14,6 +14,7 @@ Run with:
     python -m pytest tests/test_site.py
 """
 
+from contextlib import contextmanager
 from functools import partial
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -55,8 +56,9 @@ def site_url():
     server.shutdown()
 
 
-@pytest.fixture
-def page(site_url):
+@contextmanager
+def _site_page(site_url, **page_options):
+    """The site, loaded and initialized in a headless Chromium page."""
     with sync_playwright() as playwright:
         # MapLibre needs WebGL; headless Chromium only provides it via
         # software rendering (SwiftShader), which requires this opt-in.
@@ -66,17 +68,34 @@ def page(site_url):
             args=["--enable-unsafe-swiftshader"],
             env={"WAYLAND_DISPLAY": "", "DISPLAY": ""},
         )
-        page = browser.new_page()
+        page = browser.new_page(**page_options)
         page.goto(site_url)
-        # The stats line is filled at the very end of initialization, after
-        # the tiles metadata and lines.json have been fetched, the sidebar
-        # built, and the filters applied.
-        page.wait_for_function(
-            "document.querySelector('#stats').textContent.includes('affichée')",
-            timeout=30_000,
-        )
+        _wait_for_init(page)
         yield page
         browser.close()
+
+
+def _wait_for_init(page):
+    # The stats line is filled at the very end of initialization, after the
+    # tiles metadata and lines.json have been fetched, the sidebar built, and
+    # the filters applied.
+    page.wait_for_function(
+        "document.querySelector('#stats').textContent.includes('affichée')",
+        timeout=30_000,
+    )
+
+
+@pytest.fixture
+def page(site_url):
+    with _site_page(site_url) as page:
+        yield page
+
+
+@pytest.fixture
+def touch_page(site_url):
+    """A touch screen: taps fire touch events, as on a phone or tablet."""
+    with _site_page(site_url, has_touch=True) as page:
+        yield page
 
 
 def _line_count(page) -> int:
@@ -99,33 +118,155 @@ def test_page_initializes_without_js_errors(site_url):
         page.on("pageerror", lambda exc: errors.append(str(exc)))
 
         page.goto(site_url)
-        page.wait_for_function(
-            "document.querySelector('#stats').textContent.includes('affichée')",
-            timeout=30_000,
-        )
-        # One expander per transport mode, built from lines.json.
-        assert page.locator("#modes details").count() == 8
+        _wait_for_init(page)
+        # One row per transport mode, built from lines.json.
+        assert page.locator("#modes .mode").count() == 8
         browser.close()
 
     assert errors == [], f"JavaScript errors on page load: {errors}"
 
 
-def test_selecting_line_shows_it_for_a_mode_disabled_by_default(page):
-    # Regression test: visibleRouteIds() used to gate visibility on
-    # "toutes les lignes" alone for non-Bus modes, silently ignoring any
-    # line selection — so picking a specific line on a mode that starts
-    # unchecked (e.g. Transilien) rendered nothing at all on the map.
-    transilien = page.locator("#modes details", has_text="Transilien")
-    transilien.locator("summary").click()
-    all_box = transilien.locator("label", has_text="Afficher toutes les lignes").locator("input")
-    expect(all_box).not_to_be_checked()
-
+def test_mode_shows_all_its_lines_until_some_are_picked(page):
+    # Transilien starts off: ticking it shows all its lines, picking one
+    # line then narrows it to that line.
+    transilien = page.locator("#modes .mode", has_text="Transilien")
     before = _line_count(page)
-    transilien.locator(".dropdown-toggle").last.click()
-    transilien.locator(".options label").first.locator("input").check()
 
+    transilien.locator(".mode-toggle input").check()
+    assert _line_count(page) > before + 1
+
+    transilien.locator(".multiselect-box").click()
+    transilien.locator(".option").first.click()
     expect(page.locator("#stats")).to_have_text(f"{before + 1} ligne(s) affichée(s)")
-    expect(all_box).not_to_be_checked()
+
+
+def test_line_serves_cities_with_a_matching_stop_in_each(page):
+    # A line with an accessible stop in city A, inaccessible ones only in B.
+    served = page.evaluate(
+        """() => {
+          const line = {cities: {A: {true: 1}, B: {false: 2}}};
+          const serves = (access, cities) => lineServesCities(line, access, new Set(cities));
+          return [
+            serves(['true', 'partial'], []),          // no city selected
+            serves(['true', 'partial'], ['A']),
+            serves(['true', 'partial'], ['A', 'B']),  // no matching stop in B
+            serves(['true', 'false'], ['A', 'B']),
+            serves(['true', 'partial'], ['C']),       // doesn't go through C
+          ];
+        }"""
+    )
+    assert served == [True, True, False, True, False]
+
+
+def _shown_modes(page) -> dict:
+    """Mode → "on", "off", or "empty" (no line matching the filters)."""
+    return page.evaluate(
+        """() => Object.fromEntries([...document.querySelectorAll('#modes .mode')].map(row => {
+          const box = row.querySelector('.mode-toggle input');
+          const state = box.disabled ? 'empty' : box.checked ? 'on' : 'off';
+          return [row.querySelector('.mode-name').textContent, state];
+        }))"""
+    )
+
+
+def _shown_lines_missing_a_city(page, codes) -> list:
+    """Shown lines without a stop of the selected accessibility in one of
+    these cities (INSEE codes) — should be none."""
+    return page.evaluate(
+        """(codes) => visibleRouteIds()
+          .map(id => LINES.find(l => l.route_id === id))
+          .filter(l => !codes.every(c => selectedAccess().some(k => l.cities[c]?.[k])))
+          .map(l => l.route_long_name)""",
+        codes,
+    )
+
+
+def _add_city(page, query, label):
+    """Type a query in the city search box and pick a suggested city."""
+    cities = page.locator("#cities")
+    cities.locator(".multiselect-input").fill(query)
+    cities.get_by_role("button", name=label, exact=True).click()
+
+
+def _remove_city(page, label):
+    page.locator("#cities").get_by_role("button", name=f"Retirer {label}", exact=True).click()
+
+
+def test_city_filter_shows_every_mode_and_lines_serving_all_cities(page):
+    """Selecting a city shows every mode's lines serving it, buses included;
+    a second city keeps only the lines serving both; clearing them restores
+    the default modes and lines."""
+    default_modes, default_count = _shown_modes(page), _line_count(page)
+    assert default_modes["Bus"] == "off", "Bus is expected off by default"
+
+    _add_city(page, "paris", "Paris (75)")
+    assert "off" not in _shown_modes(page).values(), "Selecting a city should show every mode"
+    assert _shown_lines_missing_a_city(page, ["75056"]) == []
+    paris_count = _line_count(page)
+
+    _add_city(page, "saint denis", "Saint-Denis (93)")
+    both_count = _line_count(page)
+    assert 0 < both_count < paris_count
+    assert _shown_lines_missing_a_city(page, ["75056", "93066"]) == []
+    assert "14" in page.evaluate(
+        "visibleRouteIds().map(id => LINES.find(l => l.route_id === id))"
+        ".filter(l => l.mode === 'Métro').map(l => l.route_long_name)"
+    ), "Metro 14 serves both Paris and Saint-Denis"
+
+    # A line picked from the cities' lists doesn't outlive them.
+    bus = page.locator("#modes .mode", has_text="Bus")
+    bus.locator(".multiselect-box").click()
+    bus.locator(".option").first.click()
+    page.keyboard.press("Escape")
+
+    _remove_city(page, "Paris (75)")
+    _remove_city(page, "Saint-Denis (93)")
+    assert _shown_modes(page) == default_modes
+    assert _line_count(page) == default_count
+    assert page.evaluate("modeState.Bus.lines.size") == 0, "Clearing the cities should clear line picks"
+
+
+def test_reset_restores_the_default_view(page):
+    """"Réinitialiser" shows once a filter changes, and puts every filter
+    back: accessibility, cities, modes, line picks."""
+    reset = page.locator("#reset-filters")
+    default_modes, default_count = _shown_modes(page), _line_count(page)
+    expect(reset).to_be_hidden()
+
+    _add_city(page, "orly", "Orly (94)")
+    bus = page.locator("#modes .mode", has_text="Bus")
+    bus.locator(".multiselect-box").click()
+    bus.locator(".option").first.click()
+    page.keyboard.press("Escape")
+    partial = page.locator("#access label", has_text="Partiellement").locator("input")
+    partial.uncheck()
+    expect(reset).to_be_visible()
+
+    reset.click()
+    expect(reset).to_be_hidden()
+    expect(partial).to_be_checked()
+    assert page.locator("#cities .tag").count() == 0
+    assert _shown_modes(page) == default_modes
+    assert _line_count(page) == default_count
+    assert page.evaluate("modeState.Bus.lines.size") == 0
+    expect(page.locator("#sidebar")).to_have_attribute("open", ""), "The click mustn't fold the panel"
+
+
+def test_city_search_matches_word_starts(page):
+    search = page.locator("#cities .multiselect-input")
+
+    def found(query):
+        search.fill(query)
+        return page.locator("#cities .option").all_text_contents()
+
+    # Case and accents ignored, from the start of a word only.
+    assert "Créteil (94)" in found("cre")
+    assert "Vaucresson (92)" not in found("cre")
+    assert "Le Kremlin-Bicêtre (94)" in found("kremlin")
+    assert "L'Haÿ-les-Roses (94)" in found("l hay")
+    assert "Saint-Maur-des-Fossés (94)" in found("saint maur")
+    # Names starting with the query come first.
+    assert found("paris")[0] == "Paris (75)"
 
 
 def _stop_popup(page, stops, cursor):
@@ -262,20 +403,16 @@ def test_highlight_does_not_reprocess_tiles(page):
     assert tile_loads == 0, f"Highlighting reloaded {tile_loads} tile(s)"
 
 
-def test_click_selects_and_hover_only_previews(page):
-    """Hover previews a stop's popup (with a how-to hint) without
-    highlighting; a click selects it (highlight + "Revenir à la vue
-    d'ensemble" button), and hovering elsewhere then leaves the selection
-    alone until the button clears it. The hint stops once the user has
-    selected something.
-    """
+def _stop_and_empty_spots(page):
+    """Page coordinates of a stop, and of a spot with no line or stop, clear
+    of the map notice and the "Revenir à la vue d'ensemble" button."""
     _wait_for_map_idle(page)
-    spots = page.evaluate(
+    return page.evaluate(
         """() => {
           const r = map.getCanvas().getBoundingClientRect();
           const toPage = ([x, y]) => [x + r.left, y + r.top];
           const stop = map.queryRenderedFeatures({layers: ['stops']})[0];
-          let empty = null;  // a spot with no line or stop, clear of the notice and button
+          let empty = null;
           for (let x = 20; x < r.width - 20 && !empty; x += 10)
             for (let y = 80; y < r.height - 80 && !empty; y += 10)
               if (!map.queryRenderedFeatures([x, y], {layers: ['stops', 'lines']}).length) empty = [x, y];
@@ -284,49 +421,172 @@ def test_click_selects_and_hover_only_previews(page):
         }"""
     )
 
-    def state():
-        return page.evaluate(
-            """() => ({
-              popup: hoverPopup.isOpen(),
-              highlighted: highlighted.lineIds.length > 0,
-              button: !document.querySelector('.deselect-button').hidden,
-              hint: !document.querySelector('.map-notice').hidden
-                && document.querySelector('.map-notice').textContent.includes('Astuce'),
-            })"""
-        )
+
+def _selection_state(page):
+    return page.evaluate(
+        """() => ({
+          popup: hoverPopup.isOpen(),
+          highlighted: highlighted.lineIds.length > 0,
+          button: !document.querySelector('.deselect-button').hidden,
+          hint: !document.querySelector('.map-notice').hidden
+            && document.querySelector('.map-notice [data-hint="select"]') !== null,
+        })"""
+    )
+
+
+# Popup only, with the how-to hint; selection (highlight + "Revenir à la vue
+# d'ensemble" button); nothing.
+PREVIEW = {"popup": True, "highlighted": False, "button": False, "hint": True}
+SELECTED = {"popup": True, "highlighted": True, "button": True, "hint": False}
+CLEARED = {"popup": False, "highlighted": False, "button": False, "hint": False}
+
+
+def test_click_selects_and_hover_only_previews(page):
+    """Hover previews a stop's popup without highlighting; a click selects
+    it, and hovering elsewhere then leaves the selection alone until the
+    "Revenir à la vue d'ensemble" button clears it. The hint stops once the
+    user has selected something, until the next visit.
+    """
+    spots = _stop_and_empty_spots(page)
 
     page.mouse.move(*spots["stop"])
-    assert state() == {"popup": True, "highlighted": False, "button": False, "hint": True}
+    assert _selection_state(page) == PREVIEW
 
     page.mouse.click(*spots["stop"])
-    selected = {"popup": True, "highlighted": True, "button": True, "hint": False}
-    assert state() == selected
+    assert _selection_state(page) == SELECTED
 
     page.mouse.move(*spots["empty"])
-    assert state() == selected, "Hovering elsewhere should leave the selection alone"
+    assert _selection_state(page) == SELECTED, "Hovering elsewhere should leave the selection alone"
 
     page.locator(".deselect-button").click()
-    assert state() == {"popup": False, "highlighted": False, "button": False, "hint": False}
+    assert _selection_state(page) == CLEARED
 
     page.mouse.move(*spots["stop"])
-    assert state()["hint"] is False, "The hint should be gone once the user has selected"
+    assert _selection_state(page)["hint"] is False, "The hint should be gone once the user has selected"
+
+    page.reload()
+    _wait_for_init(page)
+    page.mouse.move(*_stop_and_empty_spots(page)["stop"])
+    assert _selection_state(page)["hint"] is True, "The hint should be back on a new visit"
 
 
-def test_show_all_checkbox_syncs_with_line_selection(page):
-    # "Afficher toutes les lignes" must never stay checked once it no longer
-    # reflects reality, and re-checking it must restore the literal "all"
-    # state rather than leaving a stale narrower selection in effect.
-    tramway = page.locator("#modes details", has_text="Tramway")
-    all_box = tramway.locator("label", has_text="Afficher toutes les lignes").locator("input")
-    expect(all_box).to_be_checked()
+def _caught_by_mouse_and_finger(page, find_spot):
+    """The layers of what featuresAt() catches, for the mouse and for a
+    finger, at the spot returned by find_spot (JS function, null if none)."""
+    _wait_for_map_idle(page)
+    return page.evaluate(
+        f"""() => {{
+          const p = ({find_spot})();
+          if (!p) return null;
+          const caught = touch => {{
+            touchInput = touch;
+            return featuresAt(p).map(f => f.layer.id);
+          }};
+          const result = {{mouse: caught(false), finger: caught(true)}};
+          touchInput = false;
+          return result;
+        }}"""
+    )
 
-    lines_toggle = tramway.locator(".dropdown-toggle").last
-    lines_toggle.click()
-    tramway.locator(".options label").first.locator("input").check()
 
-    expect(all_box).not_to_be_checked()
-    expect(lines_toggle).not_to_have_text("Sélectionner…")
+def test_finger_catches_a_stop_or_line_tapped_beside_it(page):
+    """A finger is less precise than a mouse: a tap a little beside a stop
+    (12 px, on nothing) or a line (6 px, no stop nearby) still catches it; the
+    mouse stays exact."""
+    beside_stop = _caught_by_mouse_and_finger(
+        page,
+        """() => {
+          for (const stop of map.queryRenderedFeatures({layers: ['stops']}).slice(0, 50)) {
+            const c = map.project(stop.geometry.coordinates);
+            for (const [dx, dy] of [[12, 0], [-12, 0], [0, 12], [0, -12]]) {
+              const p = new maplibregl.Point(c.x + dx, c.y + dy);
+              if (!map.queryRenderedFeatures(p, {layers: ['stops', 'lines']}).length) return p;
+            }
+          }
+          return null;
+        }""",
+    )
+    assert beside_stop, "No empty spot found 12 px from a stop"
+    assert beside_stop["mouse"] == [], "The mouse should only catch what's exactly under it"
+    assert beside_stop["finger"] and set(beside_stop["finger"]) == {"stops"}, \
+        "A finger tap 12 px beside a stop should catch it"
 
-    all_box.check()
+    # 6 px off a segment's middle, on nothing, inside the map, no stop within 25 px.
+    beside_line = _caught_by_mouse_and_finger(
+        page,
+        """() => {
+          const {clientWidth: w, clientHeight: h} = map.getCanvas();
+          const free = p => p.x > 0 && p.x < w && p.y > 0 && p.y < h
+            && !map.queryRenderedFeatures(p, {layers: ['stops', 'lines']}).length
+            && !map.queryRenderedFeatures([[p.x - 25, p.y - 25], [p.x + 25, p.y + 25]],
+                                          {layers: ['stops']}).length;
+          for (const line of map.queryRenderedFeatures({layers: ['lines']})) {
+            const g = line.geometry;
+            const path = g.type === 'LineString' ? g.coordinates : g.coordinates[0];
+            for (let i = 1; i < path.length; i++) {
+              const a = map.project(path[i - 1]), b = map.project(path[i]);
+              const len = Math.hypot(b.x - a.x, b.y - a.y);
+              if (len < 20) continue;
+              const p = new maplibregl.Point((a.x + b.x) / 2 - 6 * (b.y - a.y) / len,
+                                             (a.y + b.y) / 2 + 6 * (b.x - a.x) / len);
+              if (free(p)) return p;
+            }
+          }
+          return null;
+        }""",
+    )
+    assert beside_line, "No empty spot found 6 px from a line, away from stops"
+    assert beside_line["mouse"] == [], "The mouse should only catch what's exactly under it"
+    assert beside_line["finger"] == ["lines"], "A finger tap 6 px beside a line should catch it"
 
-    expect(lines_toggle).to_have_text("Sélectionner…")
+
+def test_second_tap_selects_only_the_same_stop_point(page):
+    """A second tap selects only if aimed at the same stop point: the other
+    direction of a bus stop (same name, another stop_id) previews again."""
+    _wait_for_map_idle(page)
+    keys = page.evaluate(
+        """() => {
+          const {clientWidth: w, clientHeight: h} = map.getCanvas();
+          const byName = new Map();
+          for (const f of map.queryRenderedFeatures({layers: ['stops']})) {
+            const p = map.project(f.geometry.coordinates);
+            if (p.x < 0 || p.x > w || p.y < 0 || p.y > h) continue;
+            const {stop_name, stop_id} = f.properties;
+            if (!byName.has(stop_name)) byName.set(stop_name, new Map());
+            byName.get(stop_name).set(stop_id, p);
+          }
+          const key = p => popupSubject(featuresAt(p), p).key;
+          for (const points of byName.values()) {
+            const [a, b] = [...points.values()];
+            if (!b || a.dist(b) < 4) continue;
+            // 1 px from a's center, away from b: another spot of the same circle.
+            const away = a.add(a.sub(b).unit());
+            return {a: key(a), aAgain: key(away), b: key(b)};
+          }
+          return null;
+        }"""
+    )
+    assert keys, "No stop name with two distinct stop points on screen"
+    assert keys["a"] == keys["aAgain"], "Two taps on the same stop point should count as the same"
+    assert keys["a"] != keys["b"], "A same-name stop point with another stop_id should not count as the same"
+
+
+def test_first_tap_previews_and_second_tap_selects(touch_page):
+    """A finger can't hover: its first tap on a stop previews it (Street View
+    link usable, hint inviting to tap again), a second one selects it, and a
+    tap on an empty spot clears it. On iOS, a tap used to fire a mousemove
+    that opened the hover popup — and Safari then dropped the click, so it
+    took two taps to select, and the Street View link was unusable before.
+    """
+    spots = _stop_and_empty_spots(touch_page)
+
+    touch_page.touchscreen.tap(*spots["stop"])
+    assert _selection_state(touch_page) == PREVIEW
+
+    # Two taps within 500 ms are MapLibre's double-tap zoom.
+    touch_page.wait_for_timeout(600)
+    touch_page.touchscreen.tap(*spots["stop"])
+    assert _selection_state(touch_page) == SELECTED
+
+    touch_page.touchscreen.tap(*spots["empty"])
+    assert _selection_state(touch_page) == CLEARED
