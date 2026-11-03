@@ -51,7 +51,9 @@ ACCESSIBILITY_LINE_COL = {
 
 MODE_DEFAULT_ON = {"Métro", "RER", "Tramway"}
 
-LINES_PATH = "data/processed/lines.geojson"
+WEB_APP_URL = "https://www.transports-accessibles-idf.fr/"
+
+LINES_PATH ="data/processed/lines.geojson"
 STOPS_PATH = "data/processed/stops.geojson"
 
 
@@ -100,6 +102,15 @@ def _line_sort_key(name: str):
 
 def main():
     st.set_page_config(page_title="Transports Île-de-France", layout="wide")
+    st.markdown(
+        f"""<div style="background:#FFF3CD;border:2px solid #E67E22;border-radius:8px;
+        padding:14px 18px;margin-bottom:16px;text-align:center;font-size:1.1rem">
+        ℹ️ <b>Cette application est un ancien prototype. La nouvelle version est
+        disponible sur
+        <a href="{WEB_APP_URL}" target="_blank">www.transports-accessibles-idf.fr</a></b>
+        </div>""",
+        unsafe_allow_html=True,
+    )
     st.title("Accessibilité PMR des transports en commun en Île-de-France")
     st.markdown(
         """<style>
