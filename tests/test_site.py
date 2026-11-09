@@ -522,14 +522,16 @@ def test_finger_catches_a_stop_or_line_tapped_beside_it(page):
                                           {layers: ['stops']}).length;
           for (const line of map.queryRenderedFeatures({layers: ['lines']})) {
             const g = line.geometry;
-            const path = g.type === 'LineString' ? g.coordinates : g.coordinates[0];
-            for (let i = 1; i < path.length; i++) {
-              const a = map.project(path[i - 1]), b = map.project(path[i]);
-              const len = Math.hypot(b.x - a.x, b.y - a.y);
-              if (len < 20) continue;
-              const p = new maplibregl.Point((a.x + b.x) / 2 - 6 * (b.y - a.y) / len,
-                                             (a.y + b.y) / 2 + 6 * (b.x - a.x) / len);
-              if (free(p)) return p;
+            // Every part of a MultiLineString: its first part alone may leave no free spot.
+            for (const path of g.type === 'LineString' ? [g.coordinates] : g.coordinates) {
+              for (let i = 1; i < path.length; i++) {
+                const a = map.project(path[i - 1]), b = map.project(path[i]);
+                const len = Math.hypot(b.x - a.x, b.y - a.y);
+                if (len < 20) continue;
+                const p = new maplibregl.Point((a.x + b.x) / 2 - 6 * (b.y - a.y) / len,
+                                               (a.y + b.y) / 2 + 6 * (b.x - a.x) / len);
+                if (free(p)) return p;
+              }
             }
           }
           return null;
